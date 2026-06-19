@@ -38,6 +38,7 @@ export default function SchedulerPage() {
   useEffect(() => {
     loadStatus();
     loadReports();
+     
   }, []);
 
   const handleSync = async () => {

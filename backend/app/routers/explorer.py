@@ -1,14 +1,14 @@
 """API routes for data exploration (SQL query execution)."""
 
+import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
-import pandas as pd
 
 from app.database import get_db
 from app.models.data_source import DataSource
-from app.services.connection import build_connection_url, ConnectionError
+from app.services.connection import ConnectionError, build_connection_url
 
 router = APIRouter(prefix="/explorer", tags=["explorer"])
 

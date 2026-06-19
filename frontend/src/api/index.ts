@@ -178,3 +178,24 @@ export const schedulerApi = {
     await api.delete(`/scheduler/jobs/${reportId}`);
   },
 };
+
+// ============ Data Explorer ============
+
+export const explorerApi = {
+  query: async (
+    dataSourceId: number,
+    sql: string
+  ): Promise<{
+    success: boolean;
+    columns: string[];
+    rows: Record<string, unknown>[];
+    row_count: number;
+    error?: string;
+  }> => {
+    const { data } = await api.post('/explorer/query', {
+      data_source_id: dataSourceId,
+      sql: sql,
+    });
+    return data;
+  },
+};

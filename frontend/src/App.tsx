@@ -4,6 +4,7 @@ import {
   DatabaseOutlined,
   FileTextOutlined,
   ClockCircleOutlined,
+  SearchOutlined,
 } from '@ant-design/icons';
 import {
   DataSourceList,
@@ -11,6 +12,7 @@ import {
   ReportEditor,
   ReportPreview,
   SchedulerPage,
+  DataExplorer,
 } from './pages';
 
 const { Header, Content } = Layout;
@@ -23,6 +25,11 @@ function AppMenu() {
       key: '/data-sources',
       icon: <DatabaseOutlined />,
       label: <Link to="/data-sources">数据源</Link>,
+    },
+    {
+      key: '/explorer',
+      icon: <SearchOutlined />,
+      label: <Link to="/explorer">数据探索</Link>,
     },
     {
       key: '/reports',
@@ -60,6 +67,7 @@ function AppContent() {
         <Routes>
           <Route path="/" element={<ReportList />} />
           <Route path="/data-sources" element={<DataSourceList />} />
+          <Route path="/explorer" element={<DataExplorer />} />
           <Route path="/reports" element={<ReportList />} />
           <Route path="/reports/:id" element={<ReportEditor />} />
           <Route path="/reports/:id/preview" element={<ReportPreview />} />

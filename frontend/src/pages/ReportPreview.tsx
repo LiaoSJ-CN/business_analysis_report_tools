@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Button, Space, Card, message, Spin, Descriptions, Tag, Table } from 'antd';
 import { ArrowLeftOutlined, DownloadOutlined, ReloadOutlined } from '@ant-design/icons';
+import DOMPurify from 'isomorphic-dompurify';
 import type { Report } from '../types';
 import { reportApi } from '../api';
 
@@ -14,23 +15,25 @@ export default function ReportPreview() {
   const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
-    if (id) {
-      loadReport();
-    }
-  }, [id]);
-
-  const loadReport = async () => {
     if (!id) return;
+    let cancelled = false;
+     
     setLoading(true);
-    try {
-      const data = await reportApi.get(Number(id));
-      setReport(data);
-    } catch {
-      message.error('加载报表失败');
-    } finally {
-      setLoading(false);
-    }
-  };
+    reportApi
+      .get(Number(id))
+      .then((data) => {
+        if (!cancelled) setReport(data);
+      })
+      .catch(() => {
+        if (!cancelled) message.error('加载报表失败');
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   const handlePreview = async () => {
     if (!id) return;
@@ -38,7 +41,12 @@ export default function ReportPreview() {
     try {
       const result = await reportApi.preview(Number(id), 'html');
       if (result.preview_data) {
-        setHtmlContent(result.preview_data as string);
+        // Sanitize HTML to prevent XSS attacks
+        const sanitized = DOMPurify.sanitize(result.preview_data as string, {
+          ALLOWED_TAGS: ['html', 'head', 'body', 'script', 'style', 'div', 'span', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'br', 'hr', 'ul', 'ol', 'li', 'pre', 'code', 'canvas'],
+          ALLOWED_ATTR: ['id', 'class', 'style', 'src', 'charset', 'crossorigin', 'integrity', 'referrerpolicy', 'width', 'height', 'title'],
+        });
+        setHtmlContent(sanitized);
       }
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } };

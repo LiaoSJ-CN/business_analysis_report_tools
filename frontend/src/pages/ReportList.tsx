@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, EyeOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Alert } from 'antd';
+import { PlusOutlined, DeleteOutlined, EditOutlined, PlayCircleOutlined, EyeOutlined, ClockCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import type { ColumnsType } from 'antd/es/table';
 import type { Report, ReportCreate, DataSource } from '../types';
@@ -13,12 +13,15 @@ export default function ReportList() {
   const [modalVisible, setModalVisible] = useState(false);
   const [form] = Form.useForm<ReportCreate>();
   const navigate = useNavigate();
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
 
   const loadReports = async () => {
     setLoading(true);
     try {
       const data = await reportApi.list();
       setReports(data);
+      setPagination((prev) => ({ ...prev, total: data.length }));
     } catch {
       message.error('加载报表失败');
     } finally {
@@ -38,6 +41,7 @@ export default function ReportList() {
   useEffect(() => {
     loadReports();
     loadDataSources();
+     
   }, []);
 
   const handleCreate = () => {
@@ -58,6 +62,39 @@ export default function ReportList() {
     }
   };
 
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要删除的报表');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认删除',
+      icon: <ExclamationCircleOutlined />,
+      content: (
+        <div>
+          <p>确定要删除选中的 {selectedRowKeys.length} 个报表吗？</p>
+          <Alert type="warning" message="报表删除后无法恢复，请谨慎操作！" />
+        </div>
+      ),
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await Promise.all(
+            selectedRowKeys.map(id => reportApi.delete(id as number))
+          );
+          message.success(`成功删除 ${selectedRowKeys.length} 个报表`);
+          setSelectedRowKeys([]);
+          loadReports();
+        } catch {
+          message.error('删除失败');
+        }
+      },
+    });
+  };
+
   const handleDelete = async (id: number) => {
     try {
       await reportApi.delete(id);
@@ -71,9 +108,7 @@ export default function ReportList() {
   const handleGenerate = async (report: Report, format: 'excel' | 'html') => {
     try {
       message.loading({ content: '正在生成报表...', key: 'export' });
-      // First generate the report
       await reportApi.generate(report.id, format);
-      // Then download the file
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 15);
       const filename = `${report.name}_${timestamp}.${format}`;
       await reportApi.download(report.id, format, filename);
@@ -82,6 +117,21 @@ export default function ReportList() {
       const error = err as { response?: { data?: { detail?: string } } };
       message.error({ content: error.response?.data?.detail || '生成失败', key: 'export' });
     }
+  };
+
+  const handleTableChange = (pag: { current?: number; pageSize?: number }) => {
+    setPagination({
+      ...pagination,
+      current: pag.current || 1,
+      pageSize: pag.pageSize || 10,
+    });
+  };
+
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (keys: React.Key[]) => {
+      setSelectedRowKeys(keys);
+    },
   };
 
   const columns: ColumnsType<Report> = [
@@ -143,18 +193,18 @@ export default function ReportList() {
       key: 'action',
       width: 280,
       render: (_, record) => (
-        <Space>
-          <Button type="link" icon={<EditOutlined />} onClick={() => navigate(`/reports/${record.id}`)}>
+        <Space size="small">
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => navigate(`/reports/${record.id}`)}>
             编辑
           </Button>
-          <Button type="link" icon={<EyeOutlined />} onClick={() => navigate(`/reports/${record.id}/preview`)}>
+          <Button type="link" size="small" icon={<EyeOutlined />} onClick={() => navigate(`/reports/${record.id}/preview`)}>
             预览
           </Button>
-          <Button type="link" icon={<PlayCircleOutlined />} onClick={() => handleGenerate(record, 'excel')}>
+          <Button type="link" size="small" icon={<PlayCircleOutlined />} onClick={() => handleGenerate(record, 'excel')}>
             Excel
           </Button>
           <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />}>
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
               删除
             </Button>
           </Popconfirm>
@@ -168,6 +218,14 @@ export default function ReportList() {
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>报表管理</h2>
         <Space>
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            disabled={selectedRowKeys.length === 0}
+            onClick={handleBatchDelete}
+          >
+            批量删除 {selectedRowKeys.length > 0 ? `(${selectedRowKeys.length})` : ''}
+          </Button>
           <Button icon={<ClockCircleOutlined />} onClick={() => navigate('/scheduler')}>
             定时任务
           </Button>
@@ -182,7 +240,15 @@ export default function ReportList() {
         dataSource={reports}
         rowKey="id"
         loading={loading}
-        pagination={{ pageSize: 10 }}
+        rowSelection={rowSelection}
+        scroll={{ x: 'max-content' }}
+        pagination={{
+          ...pagination,
+          showSizeChanger: true,
+          showQuickJumper: true,
+          showTotal: (total) => `共 ${total} 条`,
+        }}
+        onChange={handleTableChange}
       />
 
       <Modal

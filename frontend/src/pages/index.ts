@@ -3,3 +3,4 @@ export { default as ReportList } from './ReportList';
 export { default as ReportEditor } from './ReportEditor';
 export { default as ReportPreview } from './ReportPreview';
 export { default as SchedulerPage } from './Scheduler';
+export { default as DataExplorer } from './DataExplorer';

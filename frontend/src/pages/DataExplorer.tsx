@@ -1,23 +1,39 @@
 import { useState, useEffect } from 'react';
-import { Table, Select, Button, Space, Card, message, Alert, Spin, Modal, Form, Input, Popconfirm } from 'antd';
-import { PlayCircleOutlined, SaveOutlined, ClearOutlined, ExportOutlined, DeleteOutlined, EditOutlined, BranchesOutlined } from '@ant-design/icons';
+import { Table, Select, Button, Space, Card, message, Alert, Spin, Popconfirm, Input } from 'antd';
+import { PlayCircleOutlined, SaveOutlined, ClearOutlined, ExportOutlined, DeleteOutlined, PlusOutlined, BranchesOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataSource } from '../types';
 import { dataSourceApi, explorerApi } from '../api';
 import SqlEditor from '../components/SqlEditor';
 
-const { TextArea } = Input;
 const { Option } = Select;
 
-// Simple SQL formatter
+// Simple SQL formatter - idempotent (safe to run multiple times)
 function formatSql(sql: string): string {
-  const keywords = ['SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'ORDER BY', 'GROUP BY', 'HAVING', 'LIMIT', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'ON', 'AS', 'DISTINCT', 'UNION'];
-  let result = sql.trim();
+  // 1. 先规范化：移除多余空白，转大写
+  const normalized = sql.trim().replace(/\s+/g, ' ');
+
+  // 2. 关键词列表（按长度降序，确保 LEFT JOIN 先于 LEFT 匹配）
+  const keywords = [
+    'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'OUTER JOIN',
+    'ORDER BY', 'GROUP BY', 'HAVING', 'DISTINCT',
+    'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'LIMIT',
+    'JOIN', 'ON', 'AS', 'UNION', 'ALL',
+  ];
+
+  // 3. 在每个关键词前插入换行和缩进
+  let result = normalized;
   keywords.forEach((kw) => {
     const regex = new RegExp('\\b' + kw + '\\b', 'gi');
     result = result.replace(regex, '\n' + kw);
   });
-  return result.replace(/^\n/, '').replace(/\n/g, '\n  ');
+
+  // 4. 移除开头的多余换行，并统一缩进
+  return result
+    .replace(/^\n+/, '')  // 移除开头的换行
+    .split('\n')
+    .map((line) => (line.startsWith('  ') ? line : '  ' + line))  // 统一缩进
+    .join('\n');
 }
 
 interface SavedTemplate {
@@ -42,6 +58,24 @@ const DEFAULT_TEMPLATES: SavedTemplate[] = [
   { id: 'po_purchase_orders', name: '采购订单', sql: 'SELECT po_id, po_number, supplier_id, po_date, total_amount, received_amount, invoiced_amount, po_status, payment_status, created_by FROM po_purchase_orders ORDER BY po_date DESC, po_id' },
 ];
 
+// Load templates from localStorage or use defaults
+function loadTemplates(): SavedTemplate[] {
+  try {
+    const stored = localStorage.getItem('sqlTemplates');
+    if (stored) {
+      return JSON.parse(stored);
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return DEFAULT_TEMPLATES;
+}
+
+// Save templates to localStorage
+function saveTemplates(templates: SavedTemplate[]): void {
+  localStorage.setItem('sqlTemplates', JSON.stringify(templates));
+}
+
 export default function DataExplorer() {
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [selectedDs, setSelectedDs] = useState<number | null>(null);
@@ -54,27 +88,45 @@ export default function DataExplorer() {
     row_count: number;
     error?: string;
   } | null>(null);
-  const [templates, setTemplates] = useState<SavedTemplate[]>(DEFAULT_TEMPLATES);
+
+  // Template state
+  const [templates, setTemplates] = useState<SavedTemplate[]>(() => loadTemplates());
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
-  const [templateModalVisible, setTemplateModalVisible] = useState(false);
-  const [editingTemplate, setEditingTemplate] = useState<SavedTemplate | null>(null);
   const [templateName, setTemplateName] = useState('');
-  const [templateSql, setTemplateSql] = useState('');
+  const [isDirty, setIsDirty] = useState(false); // Track if current template has unsaved changes
 
   useEffect(() => {
     dataSourceApi.list().then((data) => {
       setDataSources(data);
-      if (data.length > 0 && !selectedDs) {
-        setSelectedDs(data[0].id);
-      }
+      setSelectedDs((prev) => prev ?? (data.length > 0 ? data[0].id : null));
     }).catch(() => {
       message.error('加载数据源失败');
     });
-
-    // Always use default templates, clear old localStorage
-    localStorage.setItem('sqlTemplates', JSON.stringify(DEFAULT_TEMPLATES));
-    setTemplates(DEFAULT_TEMPLATES);
   }, []);
+
+  // When template changes, update name and mark as not dirty
+  useEffect(() => {
+    if (selectedTemplateId) {
+      const t = templates.find((t) => t.id === selectedTemplateId);
+      if (t) {
+        setTemplateName(t.name);
+        setSql(t.sql);
+        setIsDirty(false);
+      }
+    }
+  }, [selectedTemplateId, templates]);
+
+  // Track if current state differs from selected template
+  const checkDirty = (newSql: string, newName: string) => {
+    if (selectedTemplateId) {
+      const t = templates.find((t) => t.id === selectedTemplateId);
+      if (t && (t.sql !== newSql || t.name !== newName)) {
+        setIsDirty(true);
+      } else {
+        setIsDirty(false);
+      }
+    }
+  };
 
   const handleExecute = async () => {
     if (!selectedDs) {
@@ -103,56 +155,101 @@ export default function DataExplorer() {
     }
   };
 
-  const handleSaveTemplate = (t?: SavedTemplate) => {
-    if (t) {
-      setEditingTemplate(t);
-      setTemplateName(t.name);
-      setTemplateSql(t.sql);
-    } else {
-      setEditingTemplate(null);
-      setTemplateName(sql.split('\n')[0].substring(0, 20));
-      setTemplateSql(sql);
-    }
-    setTemplateModalVisible(true);
-  };
-
-  const handleDeleteTemplate = (id: string) => {
-    const newTemplates = templates.filter((t) => t.id !== id);
-    setTemplates(newTemplates);
-    localStorage.setItem('sqlTemplates', JSON.stringify(newTemplates));
-    setSelectedTemplateId(null);
-    message.success('删除成功');
-  };
-
   const handleFormat = () => {
     setSql(formatSql(sql));
     message.success('已格式化');
   };
 
-  const handleTemplateSubmit = () => {
-    if (!templateName.trim() || !templateSql.trim()) {
-      message.warning('请填写名称和 SQL');
+  const handleSqlChange = (newSql: string) => {
+    setSql(newSql);
+    checkDirty(newSql, templateName);
+  };
+
+  const handleNameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newName = e.target.value;
+    setTemplateName(newName);
+    checkDirty(sql, newName);
+  };
+
+  const handleSelectTemplate = (id: string | undefined) => {
+    if (isDirty) {
+      // Could add a confirmation dialog here
+      message.warning('当前模板有未保存的更改，请先保存');
       return;
     }
-    if (editingTemplate) {
+    setSelectedTemplateId(id || null);
+    if (!id) {
+      // New template
+      setTemplateName('');
+      setSql('');
+      setIsDirty(true);
+    } else {
+      const t = templates.find((t) => t.id === id);
+      if (t) {
+        setTemplateName(t.name);
+        setSql(t.sql);
+        setIsDirty(false);
+      }
+    }
+  };
+
+  const handleSave = () => {
+    if (!templateName.trim()) {
+      message.warning('请输入模板名称');
+      return;
+    }
+    if (!sql.trim()) {
+      message.warning('请输入 SQL 语句');
+      return;
+    }
+
+    if (selectedTemplateId) {
+      // Update existing template
       const newTemplates = templates.map((t) =>
-        t.id === editingTemplate.id ? { id: t.id, name: templateName, sql: templateSql } : t
+        t.id === selectedTemplateId ? { ...t, name: templateName, sql } : t
       );
       setTemplates(newTemplates);
-      localStorage.setItem('sqlTemplates', JSON.stringify(newTemplates));
-      // If editing the currently selected template, update the SQL editor
-      if (selectedTemplateId === editingTemplate.id) {
-        setSql(templateSql);
-      }
-      message.success('更新成功');
+      saveTemplates(newTemplates);
+      setIsDirty(false);
+      message.success('模板已更新');
     } else {
-      const newTemplate = { id: Date.now().toString(), name: templateName, sql: templateSql };
+      // Create new template
+      const newTemplate: SavedTemplate = {
+        id: Date.now().toString(),
+        name: templateName,
+        sql,
+      };
       const newTemplates = [...templates, newTemplate];
       setTemplates(newTemplates);
-      localStorage.setItem('sqlTemplates', JSON.stringify(newTemplates));
-      message.success('保存成功');
+      saveTemplates(newTemplates);
+      setSelectedTemplateId(newTemplate.id);
+      setIsDirty(false);
+      message.success('模板已保存');
     }
-    setTemplateModalVisible(false);
+  };
+
+  const handleDelete = () => {
+    if (!selectedTemplateId) return;
+
+    const newTemplates = templates.filter((t) => t.id !== selectedTemplateId);
+    setTemplates(newTemplates);
+    saveTemplates(newTemplates);
+    setSelectedTemplateId(null);
+    setTemplateName('');
+    setSql('');
+    setIsDirty(false);
+    message.success('模板已删除');
+  };
+
+  const handleNew = () => {
+    if (isDirty) {
+      message.warning('当前模板有未保存的更改，请先保存');
+      return;
+    }
+    setSelectedTemplateId(null);
+    setTemplateName('');
+    setSql('');
+    setIsDirty(true);
   };
 
   const handleExport = () => {
@@ -179,19 +276,6 @@ export default function DataExplorer() {
     message.success('导出成功');
   };
 
-  const handleSelectTemplate = (id: string) => {
-    setSelectedTemplateId(id);
-    const t = templates.find((t) => t.id === id);
-    if (t) setSql(t.sql);
-  };
-
-  const handleEditTemplate = () => {
-    if (selectedTemplateId) {
-      const t = templates.find((t) => t.id === selectedTemplateId);
-      if (t) handleSaveTemplate(t);
-    }
-  };
-
   const columns: ColumnsType<Record<string, unknown>> = result?.columns
     ? result.columns.map((col) => ({
         title: col,
@@ -212,7 +296,8 @@ export default function DataExplorer() {
       <h2 style={{ marginBottom: 16 }}>数据探索</h2>
 
       <Card style={{ marginBottom: 16 }}>
-        <Space style={{ marginBottom: 16 }}>
+        {/* 数据源选择 */}
+        <Space style={{ marginBottom: 16 }} wrap>
           <div>
             <div style={{ marginBottom: 4, fontWeight: 500 }}>数据源</div>
             <Select
@@ -229,12 +314,13 @@ export default function DataExplorer() {
             </Select>
           </div>
 
+          {/* 模板选择 */}
           <div>
             <div style={{ marginBottom: 4, fontWeight: 500 }}>模板</div>
             <Space>
               <Select
                 style={{ width: 180 }}
-                placeholder="选择模板"
+                placeholder="选择或新建模板"
                 value={selectedTemplateId}
                 onChange={handleSelectTemplate}
                 allowClear
@@ -245,39 +331,52 @@ export default function DataExplorer() {
                   </Option>
                 ))}
               </Select>
-              {!selectedTemplateId ? (
-                <Button size="small" icon={<SaveOutlined />} onClick={() => handleSaveTemplate()}>
-                  保存为模板
-                </Button>
-              ) : (
-                <>
-                  <span style={{ color: '#666', fontSize: 12 }}>
-                    {templates.find(t => t.id === selectedTemplateId)?.name}
-                  </span>
-                  <Button size="small" icon={<EditOutlined />} onClick={() => handleEditTemplate()}>
-                    更新
+              <Button size="small" icon={<PlusOutlined />} onClick={handleNew}>
+                新建
+              </Button>
+              {selectedTemplateId && (
+                <Popconfirm
+                  title="确定删除此模板?"
+                  onConfirm={handleDelete}
+                  okText="删除"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                >
+                  <Button size="small" danger icon={<DeleteOutlined />}>
+                    删除
                   </Button>
-                  <Popconfirm title="确定删除?" onConfirm={() => handleDeleteTemplate(selectedTemplateId)}>
-                    <Button size="small" danger icon={<DeleteOutlined />}>
-                      删除
-                    </Button>
-                  </Popconfirm>
-                </>
+                </Popconfirm>
               )}
             </Space>
           </div>
         </Space>
 
+        {/* 模板名称（内联编辑） */}
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ marginBottom: 4, fontWeight: 500 }}>
+            模板名称 {isDirty && <span style={{ color: '#faad14', fontSize: 12 }}>(有未保存的更改)</span>}
+          </div>
+          <Input
+            placeholder="输入模板名称"
+            value={templateName}
+            onChange={handleNameChange}
+            style={{ maxWidth: 400 }}
+          />
+        </div>
+
+        {/* SQL 编辑器 */}
         <div style={{ marginBottom: 16 }}>
           <div style={{ marginBottom: 4, fontWeight: 500 }}>SQL 语句</div>
           <SqlEditor
+            key={selectedTemplateId || 'new'}  // 强制模板变化时重新创建编辑器
             value={sql}
-            onChange={setSql}
+            onChange={handleSqlChange}
             height="180px"
             placeholder="输入 SQL (SELECT only)"
           />
         </div>
 
+        {/* 操作按钮 */}
         <Space>
           <Button type="primary" icon={<PlayCircleOutlined />} onClick={handleExecute} loading={loading}>
             执行查询
@@ -285,8 +384,16 @@ export default function DataExplorer() {
           <Button icon={<BranchesOutlined />} onClick={handleFormat}>
             格式化
           </Button>
-          <Button icon={<ClearOutlined />} onClick={() => setSql('')}>
+          <Button icon={<ClearOutlined />} onClick={() => { setSql(''); setIsDirty(true); }}>
             清空
+          </Button>
+          <Button
+            type="default"
+            icon={<SaveOutlined />}
+            onClick={handleSave}
+            disabled={!templateName.trim() || !sql.trim()}
+          >
+            {selectedTemplateId ? '保存' : '保存为新模板'}
           </Button>
           {result && result.success && result.rows.length > 0 && (
             <Button icon={<ExportOutlined />} onClick={handleExport}>
@@ -296,6 +403,7 @@ export default function DataExplorer() {
         </Space>
       </Card>
 
+      {/* 查询结果 */}
       {loading && (
         <Card>
           <div style={{ textAlign: 'center', padding: 40 }}>
@@ -332,31 +440,6 @@ export default function DataExplorer() {
           )}
         </Card>
       )}
-
-      <Modal
-        title={editingTemplate ? '编辑模板' : '保存模板'}
-        open={templateModalVisible}
-        onOk={handleTemplateSubmit}
-        onCancel={() => setTemplateModalVisible(false)}
-      >
-        <Form layout="vertical">
-          <Form.Item label="模板名称">
-            <Input
-              value={templateName}
-              onChange={(e) => setTemplateName(e.target.value)}
-              placeholder="例如：月度销售汇总"
-            />
-          </Form.Item>
-          <Form.Item label="SQL 语句">
-            <TextArea
-              value={templateSql}
-              onChange={(e) => setTemplateSql(e.target.value)}
-              rows={6}
-              style={{ fontFamily: 'monospace' }}
-            />
-          </Form.Item>
-        </Form>
-      </Modal>
     </div>
   );
 }

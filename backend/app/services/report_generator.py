@@ -39,30 +39,58 @@ class ReportGenerator:
         if hasattr(self, "engine"):
             self.engine.dispose()
 
-    def build_query(self, item: ReportItem, parameters: dict[str, Any]) -> str:
-        """Build SQL query from report item configuration."""
+    def build_query(
+        self, item: ReportItem, parameters: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]]:
+        """Build SQL query from report item configuration with parameterized values.
+
+        Returns:
+            Tuple of (query_string, parameters_dict) for safe query execution.
+        """
         if item.custom_sql:
-            # Substitute parameters in custom SQL
+            # Substitute parameters in custom SQL (only for parameter placeholders)
             sql = item.custom_sql
             for key, value in parameters.items():
                 sql = sql.replace(f"{{{key}}}", str(value))
-            return sql
+            return sql, {}
 
         # Auto-generate query from configuration
         table_name = item.table_name
         if not table_name:
             raise ReportGeneratorError(f"Report item '{item.name}' has no table_name defined")
 
-        # Build SELECT clause
-        fields = item.fields if item.fields else ["*"]
-        select_clause = ", ".join(fields)
+        # Validate and sanitize table name (only alphanumeric and underscore)
+        import re
+        if not re.match(r'^[a-zA-Z_][a-zA-Z0-_]*$', table_name):
+            raise ReportGeneratorError(f"Invalid table name: {table_name}")
 
-        # Build WHERE clause
+        # Build SELECT clause (validate field names)
+        # Allow: *, table.field, field, and expressions like SUM(x) as y
+        fields = item.fields if item.fields else ["*"]
+        validated_fields = []
+        for f in fields:
+            if f == "*":
+                validated_fields.append(f)
+            # Allow SQL expressions (functions, aliases, etc.) in SELECT clause
+            elif re.match(r'^[a-zA-Z_][a-zA-Z0-9_.\s,()+-/*=<>!\'"]+$', f):
+                validated_fields.append(f)
+            else:
+                raise ReportGeneratorError(f"Invalid field/expression in SELECT: {f}")
+        select_clause = ", ".join(validated_fields)
+
+        # Build WHERE clause with parameterized values
         where_parts = []
+        params: dict[str, Any] = {}
+        param_index = 0
+
         for cond in (item.where_conditions or []):
             field = cond.get("field") if isinstance(cond, dict) else cond.field
             operator = cond.get("operator") if isinstance(cond, dict) else cond.operator
             value = cond.get("value") if isinstance(cond, dict) else cond.value
+
+            # Validate field name
+            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', field):
+                raise ReportGeneratorError(f"Invalid field name: {field}")
 
             # Handle parameter substitution
             if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
@@ -70,37 +98,70 @@ class ReportGenerator:
                 value = parameters.get(param_key, value)
 
             if operator == "IN" and isinstance(value, list):
-                values_str = ", ".join(f"'{v}'" if isinstance(v, str) else str(v) for v in value)
-                where_parts.append(f"{field} IN ({values_str})")
+                in_params = []
+                for v in value:
+                    param_name = f"p{param_index}"
+                    params[param_name] = v
+                    in_params.append(f":{param_name}")
+                    param_index += 1
+                where_parts.append(f"{field} IN ({', '.join(in_params)})")
             elif operator == "IS NULL":
                 where_parts.append(f"{field} IS NULL")
             elif operator == "IS NOT NULL":
                 where_parts.append(f"{field} IS NOT NULL")
             elif operator == "LIKE":
-                where_parts.append(f"{field} LIKE '{value}'")
+                param_name = f"p{param_index}"
+                params[param_name] = value
+                where_parts.append(f"{field} LIKE :{param_name}")
+                param_index += 1
             elif isinstance(value, str):
-                where_parts.append(f"{field} {operator} '{value}'")
+                param_name = f"p{param_index}"
+                params[param_name] = value
+                where_parts.append(f"{field} {operator} :{param_name}")
+                param_index += 1
             elif value is None:
                 where_parts.append(f"{field} {operator} NULL")
             else:
-                where_parts.append(f"{field} {operator} {value}")
+                param_name = f"p{param_index}"
+                params[param_name] = value
+                where_parts.append(f"{field} {operator} :{param_name}")
+                param_index += 1
 
-        # Build GROUP BY clause
+        # Build GROUP BY clause (validate field names)
         group_by_clause = ""
         if item.group_by:
-            group_by_clause = f" GROUP BY {', '.join(item.group_by)}"
+            validated_group_by = []
+            for f in item.group_by:
+                if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', f):
+                    validated_group_by.append(f)
+                else:
+                    raise ReportGeneratorError(f"Invalid field name in GROUP BY: {f}")
+            group_by_clause = f" GROUP BY {', '.join(validated_group_by)}"
 
-        # Build ORDER BY clause
+        # Build ORDER BY clause (validate field names)
         order_by_parts = []
         for ob in (item.order_by or []):
             field = ob.get("field") if isinstance(ob, dict) else ob.field
             direction = ob.get("direction", "ASC") if isinstance(ob, dict) else ob.direction
+
+            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', field):
+                raise ReportGeneratorError(f"Invalid field name in ORDER BY: {field}")
+            if direction.upper() not in ("ASC", "DESC"):
+                direction = "ASC"
             order_by_parts.append(f"{field} {direction}")
 
         order_by_clause = f" ORDER BY {', '.join(order_by_parts)}" if order_by_parts else ""
 
-        # Build LIMIT clause
-        limit_clause = f" LIMIT {item.limit}" if item.limit else ""
+        # Build LIMIT clause (validate integer)
+        limit_clause = ""
+        if item.limit:
+            try:
+                limit_val = int(item.limit)
+                if limit_val > 0:
+                    limit_clause = " LIMIT :limit_param"
+                    params["limit_param"] = limit_val
+            except (ValueError, TypeError):
+                pass  # Skip invalid limit
 
         # Assemble query
         query = f"SELECT {select_clause} FROM {table_name}"
@@ -108,30 +169,41 @@ class ReportGenerator:
             query += " WHERE " + " AND ".join(where_parts)
         query += group_by_clause + order_by_clause + limit_clause
 
-        return query
+        return query, params
 
-    def execute_query(self, query: str) -> pd.DataFrame:
-        """Execute a SQL query and return results as DataFrame."""
+    def execute_query(self, query: str, params: dict[str, Any] | None = None) -> pd.DataFrame:
+        """Execute a SQL query with parameters and return results as DataFrame."""
         try:
             with self.engine.connect() as conn:
-                df = pd.read_sql(text(query), conn)
+                if params:
+                    df = pd.read_sql(text(query), conn, params=params)
+                else:
+                    df = pd.read_sql(text(query), conn)
             return df
         except SQLAlchemyError as exc:
             raise ReportGeneratorError(f"Query execution failed: {exc}") from exc
 
     def render_html(self, data: dict[str, pd.DataFrame], report: Report) -> str:
-        """Render report data as HTML."""
+        """Render report data as HTML with Chart.js charts."""
+        # Default colors for charts
+        default_colors = [
+            "#0066cc", "#52c41a", "#faad14", "#f5222d", "#722ed1",
+            "#13c2c2", "#fa8c16", "#eb2f96", "#2f54eb", "#24bdbd",
+        ]
+
         html_parts = [
             "<!DOCTYPE html>",
             "<html>",
             "<head>",
             "<meta charset='utf-8'>",
             f"<title>{report.name}</title>",
+            "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js'></script>",
             "<style>",
             "body { font-family: -apple-system, BlinkMacSystemFont, "
             "'Segoe UI', Roboto, sans-serif; padding: 20px; }",
             "h1 { color: #333; border-bottom: 2px solid #0066cc; padding-bottom: 10px; }",
             "h2 { color: #555; margin-top: 30px; }",
+            "h3 { color: #666; margin-top: 20px; font-size: 16px; }",
             "table { border-collapse: collapse; width: 100%; margin: 20px 0; }",
             "th { background-color: #0066cc; color: white; padding: 12px; text-align: left; }",
             "td { padding: 10px; border-bottom: 1px solid #ddd; }",
@@ -140,7 +212,12 @@ class ReportGenerator:
             "background: #f0f8ff; border-radius: 8px; }",
             ".metric-value { font-size: 2em; font-weight: bold; color: #0066cc; }",
             ".metric-label { color: #666; }",
+            ".chart-container { margin: 20px 0; padding: 15px; "
+            "background: #fff; border: 1px solid #e8e8e8; border-radius: 8px; }",
             ".timestamp { color: #999; font-size: 0.9em; margin-top: 20px; }",
+            ".text-block { padding: 15px; background: #fafafa; "
+            "border-radius: 4px; margin: 10px 0; }",
+            ".chart-wrapper { position: relative; height: 400px; width: 100%; }",
             "</style>",
             "</head>",
             "<body>",
@@ -150,36 +227,137 @@ class ReportGenerator:
         if report.description:
             html_parts.append(f"<p>{report.description}</p>")
 
+        chart_index = 0
         # Render each item
         for item in report.items:
             item_data = data.get(item.name)
+            config = item.display_config or {}
 
             if item.item_type == "metric" and item_data is not None and not item_data.empty:
                 # Render as metric cards
-                if "value" in item_data.columns and "label" in item_data.columns:
-                    html_parts.append("<div>")
-                    for _, row in item_data.iterrows():
-                        html_parts.append("<div class='metric'>")
-                        html_parts.append(f"<div class='metric-value'>{row['value']}</div>")
-                        html_parts.append(f"<div class='metric-label'>{row.get('label', '')}</div>")
-                        html_parts.append("</div>")
+                html_parts.append("<div>")
+                for col in item_data.columns:
+                    value = item_data[col].iloc[0] if len(item_data) > 0 else 0
+                    formatted = self._format_value(value)
+                    html_parts.append("<div class='metric'>")
+                    html_parts.append(f"<div class='metric-value'>{formatted}</div>")
+                    html_parts.append(f"<div class='metric-label'>{col}</div>")
                     html_parts.append("</div>")
+                html_parts.append("</div>")
 
-            elif item.item_type == "chart" and item_data is not None:
-                # Render as simple HTML table with chart hint
-                # For real charts, you'd use a library like Chart.js
-                title = item.display_config.get("title") if item.display_config else item.name
+            elif item.item_type == "chart" and item_data is not None and not item_data.empty:
+                chart_index += 1
+                title = config.get("title") or item.name
+                subtitle = config.get("subtitle", "")
+                chart_type = config.get("chart_type") or "bar"
+                show_legend = config.get("show_legend", True)
+                legend_position = config.get("legend_position", "top")
+                show_grid = config.get("show_grid", True)
+                stacked = config.get("stacked", False)
+                show_data_label = config.get("show_data_label", False)
+                colors = config.get("colors") or default_colors
+                height = config.get("height", 400)
+
+                html_parts.append("<div class='chart-container'>")
                 html_parts.append(f"<h2>{title}</h2>")
-                html_parts.append(self._df_to_html_table(item_data))
+                if subtitle:
+                    html_parts.append(f"<h3>{subtitle}</h3>")
 
-            elif item.item_type in ("table", "chart") and item_data is not None:
-                title = item.display_config.get("title") if item.display_config else item.name
+                # Prepare chart data
+                labels = item_data.iloc[:, 0].tolist() if len(item_data.columns) > 0 else []
+                chart_id = f"chart_{chart_index}"
+
+                # Handle different chart types
+                if chart_type in ("pie", "doughnut", "polarArea"):
+                    # For pie/doughnut, use first column as labels, rest as data
+                    datasets = []
+                    for i, col in enumerate(item_data.columns[1:], 0):
+                        dataset_data = item_data[col].tolist()
+                        bg_color = colors[i % len(colors)] if i < len(colors) else colors[0]
+                        datasets.append({
+                            "data": dataset_data,
+                            "backgroundColor": bg_color,
+                            "borderColor": "#fff",
+                            "borderWidth": 2,
+                        })
+                    chart_config = {
+                        "type": chart_type,
+                        "data": {
+                            "labels": labels,
+                            "datasets": datasets,
+                        },
+                        "options": {
+                            "responsive": True,
+                            "maintainAspectRatio": False,
+                            "plugins": {
+                                "legend": {"display": show_legend, "position": legend_position},
+                                "datalabels": {"display": show_data_label},
+                            },
+                        },
+                    }
+                else:
+                    # For bar, line, area, radar, scatter, bubble
+                    datasets = []
+                    for i, col in enumerate(item_data.columns[1:], 0):
+                        dataset_data = item_data[col].tolist()
+                        color = colors[i % len(colors)]
+                        is_bar = chart_type in ("bar", "horizontalBar")
+                        dataset = {
+                            "label": col,
+                            "data": dataset_data,
+                            "backgroundColor": color if is_bar else f"{color}33",
+                            "borderColor": color,
+                            "borderWidth": 2,
+                            "fill": chart_type == "area",
+                            "tension": 0.4,
+                        }
+                        datasets.append(dataset)
+
+                    chart_type_for_js = "bar" if chart_type == "horizontalBar" else chart_type
+                    chart_config = {
+                        "type": chart_type_for_js,
+                        "data": {
+                            "labels": labels,
+                            "datasets": datasets,
+                        },
+                        "options": {
+                            "responsive": True,
+                            "maintainAspectRatio": False,
+                            "indexAxis": "y" if chart_type == "horizontalBar" else "x",
+                            "plugins": {
+                                "legend": {"display": show_legend, "position": legend_position},
+                                "datalabels": {"display": show_data_label},
+                            },
+                            "scales": (
+                                {
+                                    "x": {"grid": {"display": show_grid}, "stacked": stacked},
+                                    "y": {"grid": {"display": show_grid}, "stacked": stacked},
+                                }
+                                if chart_type not in ("pie", "doughnut", "radar", "polarArea")
+                                else {}
+                            ),
+                        },
+                    }
+
+                html_parts.append(f"<div class='chart-wrapper' style='height:{height}px'>")
+                html_parts.append(f"<canvas id='{chart_id}'></canvas>")
+                html_parts.append("</div>")
+                html_parts.append("</div>")
+
+                # Add Chart.js script
+                chart_js = f"new Chart(document.getElementById('{chart_id}'),"
+                chart_js += str(chart_config).replace("'", '"') + ");"
+                html_parts.append("<script>")
+                html_parts.append(chart_js)
+                html_parts.append("</script>")
+
+            elif item.item_type == "table" and item_data is not None:
+                title = config.get("title") or item.name
                 html_parts.append(f"<h2>{title}</h2>")
                 html_parts.append(self._df_to_html_table(item_data))
 
             elif item.item_type == "text":
-                # Static text content
-                content = item.display_config.get("content", "") if item.display_config else ""
+                content = config.get("content", "") if config else ""
                 html_parts.append(f"<div class='text-block'>{content}</div>")
 
         html_parts.extend([
@@ -260,9 +438,9 @@ def generate_report(
                 results[item.name] = pd.DataFrame()
                 continue
 
-            query = generator.build_query(item, parameters)
+            query, params = generator.build_query(item, parameters)
             try:
-                df = generator.execute_query(query)
+                df = generator.execute_query(query, params)
                 results[item.name] = df
             except ReportGeneratorError:
                 # If a query fails, continue with empty data

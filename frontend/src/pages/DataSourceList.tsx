@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined, SyncOutlined } from '@ant-design/icons';
+import { Table, Button, Space, Modal, Form, Input, Select, message, Popconfirm, Tag, Alert } from 'antd';
+import { PlusOutlined, DeleteOutlined, EditOutlined, SyncOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { DataSource, DataSourceCreate } from '../types';
 import { dataSourceApi } from '../api';
@@ -15,12 +15,15 @@ export default function DataSourceList() {
   const [form] = Form.useForm<DataSourceCreate>();
   const [testingId, setTestingId] = useState<number | null>(null);
   const [dbType, setDbType] = useState<string>('postgresql');
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
 
   const loadDataSources = async () => {
     setLoading(true);
     try {
       const data = await dataSourceApi.list();
       setDataSources(data);
+      setPagination((prev) => ({ ...prev, total: data.length }));
     } catch {
       message.error('加载数据源失败');
     } finally {
@@ -30,6 +33,7 @@ export default function DataSourceList() {
 
   useEffect(() => {
     loadDataSources();
+     
   }, []);
 
   const handleCreate = () => {
@@ -40,11 +44,45 @@ export default function DataSourceList() {
 
   const handleEdit = (source: DataSource) => {
     setEditingSource(source);
+    setDbType(source.db_type);
     form.setFieldsValue({
       ...source,
       password: '',
     });
     setModalVisible(true);
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要删除的数据源');
+      return;
+    }
+
+    Modal.confirm({
+      title: '确认删除',
+      icon: <ExclamationCircleOutlined />,
+      content: (
+        <div>
+          <p>确定要删除选中的 {selectedRowKeys.length} 个数据源吗？</p>
+          <Alert type="warning" message="删除后无法恢复，请谨慎操作！" />
+        </div>
+      ),
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          await Promise.all(
+            selectedRowKeys.map(id => dataSourceApi.delete(id as number))
+          );
+          message.success(`成功删除 ${selectedRowKeys.length} 个数据源`);
+          setSelectedRowKeys([]);
+          loadDataSources();
+        } catch {
+          message.error('删除失败');
+        }
+      },
+    });
   };
 
   const handleDelete = async (id: number) => {
@@ -89,6 +127,21 @@ export default function DataSourceList() {
     }
   };
 
+  const handleTableChange = (pag: { current?: number; pageSize?: number }) => {
+    setPagination({
+      ...pagination,
+      current: pag.current || 1,
+      pageSize: pag.pageSize || 10,
+    });
+  };
+
+  const rowSelection = {
+    selectedRowKeys,
+    onChange: (keys: React.Key[]) => {
+      setSelectedRowKeys(keys);
+    },
+  };
+
   const columns: ColumnsType<DataSource> = [
     {
       title: '名称',
@@ -107,19 +160,22 @@ export default function DataSourceList() {
       title: '主机',
       dataIndex: 'host',
       key: 'host',
-      width: 150,
+      width: 120,
+      render: (v) => v || '-',
     },
     {
       title: '端口',
       dataIndex: 'port',
       key: 'port',
       width: 80,
+      render: (v) => v || '-',
     },
     {
       title: '数据库',
       dataIndex: 'database',
       key: 'database',
       width: 120,
+      ellipsis: true,
     },
     {
       title: '描述',
@@ -132,20 +188,21 @@ export default function DataSourceList() {
       key: 'action',
       width: 200,
       render: (_, record) => (
-        <Space>
+        <Space size="small">
           <Button
             type="link"
+            size="small"
             icon={<SyncOutlined spin={testingId === record.id} />}
             onClick={() => handleTest(record.id)}
             loading={testingId === record.id}
           >
             测试
           </Button>
-          <Button type="link" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEdit(record)}>
             编辑
           </Button>
           <Popconfirm title="确定删除?" onConfirm={() => handleDelete(record.id)}>
-            <Button type="link" danger icon={<DeleteOutlined />}>
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
               删除
             </Button>
           </Popconfirm>
@@ -158,9 +215,19 @@ export default function DataSourceList() {
     <div style={{ padding: 24 }}>
       <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>数据源管理</h2>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
-          添加数据源
-        </Button>
+        <Space>
+          <Button
+            danger
+            icon={<DeleteOutlined />}
+            disabled={selectedRowKeys.length === 0}
+            onClick={handleBatchDelete}
+          >
+            批量删除 {selectedRowKeys.length > 0 ? `(${selectedRowKeys.length})` : ''}
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate}>
+            添加数据源
+          </Button>
+        </Space>
       </div>
 
       <Table
@@ -168,7 +235,15 @@ export default function DataSourceList() {
         dataSource={dataSources}
         rowKey="id"
         loading={loading}
-        pagination={{ pageSize: 10 }}
+        rowSelection={rowSelection}
+        scroll={{ x: 'max-content' }}
+        pagination={{
+          ...pagination,
+          showSizeChanger: true,
+          showQuickJumper: true,
+          showTotal: (total) => `共 ${total} 条`,
+        }}
+        onChange={handleTableChange}
       />
 
       <Modal

@@ -27,7 +27,20 @@ export interface DataSourceCreate {
 }
 
 export type ItemType = 'table' | 'chart' | 'text' | 'metric';
-export type ChartType = 'bar' | 'line' | 'pie' | 'area' | 'scatter';
+export type ChartType =
+  | 'bar'
+  | 'line'
+  | 'pie'
+  | 'doughnut'
+  | 'radar'
+  | 'polarArea'
+  | 'scatter'
+  | 'bubble'
+  | 'area'
+  | 'horizontalBar'
+  | 'funnel'
+  | 'gauge'
+  | 'heatmap';
 export type OperatorType = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'IN' | 'IS NULL' | 'IS NOT NULL';
 
 export interface WhereCondition {
@@ -51,10 +64,28 @@ export interface ColumnConfig {
 export interface DisplayConfig {
   chart_type?: ChartType;
   title?: string;
+  subtitle?: string;
   colors?: string[];
   columns?: ColumnConfig[];
   height?: number;
+  width?: number;
   content?: string;
+  // 图表额外配置
+  showLegend?: boolean;
+  legendPosition?: 'top' | 'bottom' | 'left' | 'right';
+  showDataLabel?: boolean;
+  showGrid?: boolean;
+  stacked?: boolean;
+  horizontal?: boolean;
+  // 坐标轴配置
+  xAxisField?: string;
+  yAxisFields?: string[];
+  // 饼图/环形图配置
+  showPercentage?: boolean;
+  // 仪表盘配置
+  minValue?: number;
+  maxValue?: number;
+  unit?: string;
 }
 
 export interface ReportItem {

@@ -9,7 +9,7 @@ from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.models import data_source as _data_source_module  # noqa: F401
 from app.models import report as _report_module  # noqa: F401
-from app.routers import data_source, report, scheduler
+from app.routers import data_source, explorer, report, scheduler
 from app.services.scheduler import get_scheduler
 
 Base.metadata.create_all(bind=engine)
@@ -46,6 +46,7 @@ app.add_middleware(
 app.include_router(data_source.router)
 app.include_router(report.router)
 app.include_router(scheduler.router)
+app.include_router(explorer.router)
 
 
 @app.get("/health")

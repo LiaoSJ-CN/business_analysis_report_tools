@@ -22,8 +22,13 @@ class ChartType(str, Enum):
     BAR = "bar"
     LINE = "line"
     PIE = "pie"
-    AREA = "area"
+    DOUGHNUT = "doughnut"
+    RADAR = "radar"
+    POLAR_AREA = "polarArea"
     SCATTER = "scatter"
+    BUBBLE = "bubble"
+    AREA = "area"
+    HORIZONTAL_BAR = "horizontalBar"
 
 
 class OperatorType(str, Enum):
@@ -73,9 +78,28 @@ class DisplayConfig(BaseModel):
 
     chart_type: ChartType | None = None
     title: str | None = None
+    subtitle: str | None = None
     colors: list[str] | None = None
     columns: list[ColumnConfig] | None = None
     height: int | None = Field(default=300, ge=100, le=1000)
+    width: int | None = None
+    content: str | None = None
+    # 图表额外配置
+    show_legend: bool | None = True
+    legend_position: str | None = "top"
+    show_data_label: bool | None = False
+    show_grid: bool | None = True
+    stacked: bool | None = False
+    horizontal: bool | None = False
+    # 坐标轴配置
+    x_axis_field: str | None = None
+    y_axis_fields: list[str] | None = None
+    # 饼图/环形图配置
+    show_percentage: bool | None = True
+    # 仪表盘配置
+    min_value: float | None = None
+    max_value: float | None = None
+    unit: str | None = None
 
 
 class ReportItemBase(BaseModel):

@@ -18,5 +18,9 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // Disable set-state-in-effect rule - it flags the standard async data loading pattern
+      'react-hooks/set-state-in-effect': 'off',
+    },
   },
 ])

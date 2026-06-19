@@ -1,5 +1,7 @@
 """API routes for scheduled task management."""
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -7,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.report import Report
 from app.services.scheduler import get_scheduler
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/scheduler", tags=["scheduler"])
 
@@ -54,6 +58,7 @@ def sync_scheduler(db: Session = Depends(get_db)):
     ).all()
 
     count = 0
+    failed = []
     for report_obj in db_gen:
         try:
             scheduler.add_report_job(
@@ -61,10 +66,14 @@ def sync_scheduler(db: Session = Depends(get_db)):
                 cron_expression=report_obj.cron_expression,
             )
             count += 1
-        except Exception:
-            pass
+        except Exception as exc:
+            failed.append({"report_id": report_obj.id, "error": str(exc)})
+            logger.warning(f"Failed to add scheduler job for report {report_obj.id}: {exc}")
 
-    return SchedulerSyncResponse(jobs_loaded=count, message=f"Synced {count} scheduled reports")
+    msg = f"Synced {count} scheduled reports"
+    if failed:
+        msg += f", {len(failed)} failed"
+    return SchedulerSyncResponse(jobs_loaded=count, message=msg)
 
 
 @router.get("/jobs/{report_id}", response_model=SchedulerJobResponse)

@@ -128,17 +128,27 @@ interface ItemEditorModalProps {
 
 function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorModalProps) {
   const [form] = Form.useForm();
-  const [itemType, setItemType] = useState<string>('table');
-  const [useCustomSql, setUseCustomSql] = useState(false);
+  // State initialized from item prop; onValuesChange keeps them in sync with form
+  const [itemType, setItemType] = useState<string>(item?.item_type || 'table');
+  const [useCustomSql, setUseCustomSql] = useState<boolean>(!!item?.custom_sql);
 
+  // Keep itemType and useCustomSql in sync with form changes
+  const handleValuesChange = (_: unknown, values: Record<string, unknown>) => {
+    if (values.item_type && values.item_type !== itemType) {
+      setItemType(values.item_type as string);
+    }
+    if (values.custom_sql !== undefined) {
+      setUseCustomSql(!!values.custom_sql);
+    }
+  };
+
+  // Sync form values when item changes
   useEffect(() => {
     if (item) {
       form.setFieldsValue({
         ...item,
         display_config: item.display_config || {},
       });
-      setItemType(item.item_type);
-      setUseCustomSql(!!item.custom_sql);
     } else {
       form.resetFields();
       form.setFieldsValue({
@@ -151,8 +161,6 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
         limit: 1000,
         display_config: { height: 300 },
       });
-      setItemType('table');
-      setUseCustomSql(false);
     }
   }, [item, form]);
 
@@ -179,7 +187,7 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
       width={800}
       destroyOnClose
     >
-      <Form form={form} layout="vertical">
+      <Form form={form} layout="vertical" onValuesChange={handleValuesChange}>
         <Space style={{ width: '100%' }} size="large">
           <Form.Item
             name="name"
@@ -328,24 +336,77 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
             <Divider>展示配置</Divider>
 
             {itemType === 'chart' && (
-              <Form.Item name={['display_config', 'chart_type']} label="图表类型">
-                <Select>
-                  <Select.Option value="bar">柱状图</Select.Option>
-                  <Select.Option value="line">折线图</Select.Option>
-                  <Select.Option value="pie">饼图</Select.Option>
-                  <Select.Option value="area">面积图</Select.Option>
-                  <Select.Option value="scatter">散点图</Select.Option>
-                </Select>
-              </Form.Item>
+              <>
+                <Divider>图表配置</Divider>
+                <Form.Item name={['display_config', 'chart_type']} label="图表类型">
+                  <Select>
+                    <Select.Option value="bar">柱状图</Select.Option>
+                    <Select.Option value="horizontalBar">横向柱状图</Select.Option>
+                    <Select.Option value="line">折线图</Select.Option>
+                    <Select.Option value="area">面积图</Select.Option>
+                    <Select.Option value="pie">饼图</Select.Option>
+                    <Select.Option value="doughnut">环形图</Select.Option>
+                    <Select.Option value="radar">雷达图</Select.Option>
+                    <Select.Option value="polarArea">极坐标图</Select.Option>
+                    <Select.Option value="scatter">散点图</Select.Option>
+                    <Select.Option value="bubble">气泡图</Select.Option>
+                  </Select>
+                </Form.Item>
+
+                <Form.Item name={['display_config', 'title']} label="图表标题">
+                  <Input placeholder="输入图表标题" />
+                </Form.Item>
+
+                <Form.Item name={['display_config', 'subtitle']} label="副标题">
+                  <Input placeholder="输入副标题（可选）" />
+                </Form.Item>
+
+                <Space style={{ width: '100%' }} size="large">
+                  <Form.Item name={['display_config', 'height']} label="高度 (px)" style={{ flex: 1 }}>
+                    <InputNumber min={200} max={800} defaultValue={400} />
+                  </Form.Item>
+                  <Form.Item name={['display_config', 'showLegend']} label="显示图例" valuePropName="checked">
+                    <Select defaultValue={true}>
+                      <Select.Option value={true}>是</Select.Option>
+                      <Select.Option value={false}>否</Select.Option>
+                    </Select>
+                  </Form.Item>
+                </Space>
+
+                <Form.Item name={['display_config', 'legendPosition']} label="图例位置">
+                  <Select defaultValue="top">
+                    <Select.Option value="top">顶部</Select.Option>
+                    <Select.Option value="bottom">底部</Select.Option>
+                    <Select.Option value="left">左侧</Select.Option>
+                    <Select.Option value="right">右侧</Select.Option>
+                  </Select>
+                </Form.Item>
+
+                <Space style={{ width: '100%' }} size="large">
+                  <Form.Item name={['display_config', 'showGrid']} label="显示网格线" valuePropName="checked">
+                    <Select defaultValue={true}>
+                      <Select.Option value={true}>是</Select.Option>
+                      <Select.Option value={false}>否</Select.Option>
+                    </Select>
+                  </Form.Item>
+                  <Form.Item name={['display_config', 'stacked']} label="堆叠显示">
+                    <Select defaultValue={false}>
+                      <Select.Option value={true}>是</Select.Option>
+                      <Select.Option value={false}>否</Select.Option>
+                    </Select>
+                  </Form.Item>
+                </Space>
+              </>
             )}
 
-            <Form.Item name={['display_config', 'title']} label="标题">
-              <Input placeholder="图表/表格标题" />
-            </Form.Item>
-
-            <Form.Item name={['display_config', 'height']} label="高度 (px)">
-              <InputNumber min={100} max={1000} defaultValue={300} />
-            </Form.Item>
+            {itemType === 'table' && (
+              <>
+                <Divider>表格配置</Divider>
+                <Form.Item name={['display_config', 'title']} label="表格标题">
+                  <Input placeholder="输入表格标题" />
+                </Form.Item>
+              </>
+            )}
           </>
         )}
       </Form>
@@ -384,9 +445,19 @@ export default function ReportEditor() {
     }
   };
 
+  const loadDataSources = async () => {
+    try {
+      const data = await dataSourceApi.list();
+      setDataSources(data);
+    } catch {
+      message.error('加载数据源失败');
+    }
+  };
+
   useEffect(() => {
     loadReport();
-    dataSourceApi.list().then(setDataSources).catch(() => {});
+    loadDataSources();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadReport/loadDataSources use id from closure
   }, [id]);
 
   const handleSaveReport = async () => {
