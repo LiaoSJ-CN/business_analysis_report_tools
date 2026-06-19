@@ -12,12 +12,17 @@ business_analysis_report_tools/
 │   │   ├── models/       # SQLAlchemy 模型
 │   │   ├── schemas/      # Pydantic schemas
 │   │   ├── routers/      # API 路由
+│   │   │   ├── data_source.py
+│   │   │   ├── report.py
+│   │   │   ├── scheduler.py
+│   │   │   └── explorer.py
 │   │   └── services/     # 业务服务
 │   ├── requirements.txt   # Python 依赖
 │   └── generated_reports/ # 生成的报表文件
 ├── frontend/              # React + Vite 前端
 │   ├── src/
 │   │   ├── api/          # API 调用
+│   │   ├── components/   # 公共组件
 │   │   ├── pages/        # 页面组件
 │   │   └── types/        # TypeScript 类型
 │   ├── package.json

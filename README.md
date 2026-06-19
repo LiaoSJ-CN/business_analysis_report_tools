@@ -20,7 +20,8 @@ business_analysis_report_tools/
 │   │   ├── routers/        # API 路由
 │   │   │   ├── data_source.py
 │   │   │   ├── report.py
-│   │   │   └── scheduler.py
+│   │   │   ├── scheduler.py
+│   │   │   └── explorer.py
 │   │   └── services/       # 业务服务
 │   │       ├── connection.py
 │   │       ├── report_generator.py
@@ -32,6 +33,7 @@ business_analysis_report_tools/
 │   │   ├── components/
 │   │   ├── pages/         # 页面组件
 │   │   │   ├── DataSourceList.tsx
+│   │   │   ├── DataExplorer.tsx
 │   │   │   ├── ReportList.tsx
 │   │   │   ├── ReportEditor.tsx
 │   │   │   ├── ReportPreview.tsx
@@ -70,9 +72,16 @@ npm run dev
 ## 功能特性
 
 ### 数据源管理
-- 支持 OpenGauss、DWS、PostgreSQL
+- 支持 OpenGauss、DWS、PostgreSQL、SQLite
 - 数据库连接测试
 - 密码加密存储
+
+### 数据探索
+- SQL 查询执行（只允许 SELECT）
+- CodeMirror 6 SQL 编辑器，语法高亮
+- 模板管理：保存、编辑、删除 SQL 模板
+- 13 个演示数据表模板
+- 查询结果导出 CSV
 
 ### 报表配置
 - 可视化拖拽配置报表项
@@ -115,3 +124,4 @@ npm run dev
 | POST | /scheduler/sync | 同步调度器 |
 | POST | /scheduler/jobs/{report_id} | 创建定时任务 |
 | DELETE | /scheduler/jobs/{report_id} | 删除定时任务 |
+| POST | /explorer/query | 执行 SQL 查询 |
