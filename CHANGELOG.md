@@ -1,43 +1,40 @@
-# Changelog
+# 更新日志
 
-All notable changes to this project will be documented in this file.
+本项目的所有重要变更都会记录在此文件中。
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+## [未发布]
 
-## [Unreleased]
+### 安全修复
+- **严重**: 修复 `report_generator.py` 中的 SQL 注入漏洞，使用参数化查询
+- **严重**: 在 `ReportPreview.tsx` 中添加 XSS 防护，使用 DOMPurify 进行 HTML 消毒
+- 修复 `scheduler.py` 中的异常吞没问题，改为正确的日志记录
 
-### Security
-- **CRITICAL**: Fix SQL injection in `report_generator.py` with parameterized queries
-- **CRITICAL**: Add XSS protection in `ReportPreview.tsx` with DOMPurify sanitization
-- Add proper exception logging in `scheduler.py` instead of silent swallowing
+### 代码质量
+- 修复 ESLint 警告 (set-state-in-effect, exhaustive-deps)
+- 修复后端 ruff 检查问题
+- 修复 `formatSql` 函数的幂等性问题
 
-### Code Quality
-- Fix ESLint warnings (set-state-in-effect, exhaustive-deps)
-- Fix Python linting (ruff) in backend
-- Fix `formatSql` function idempotency issue
+### 前端优化
+- DataExplorer 用户体验优化：内联模板编辑，无需弹窗
+- 模板名称始终可编辑
+- 保存按钮同时支持新建和更新模板
+- 添加未保存更改状态跟踪 (`isDirty`)
 
-### Frontend
-- Optimize DataExplorer UX: inline template editing without modal
-- Template name always editable
-- Save button for both new and existing templates
-- Dirty state tracking for unsaved changes
-- Add `isDirty` indicator for pending changes
-
-### Dependencies
-- Add `isomorphic-dompurify` for HTML sanitization
-- Add `dompurify` type definitions
+### 依赖更新
+- 添加 `isomorphic-dompurify` 用于 HTML 消毒
+- 添加 `dompurify` 类型定义
 
 ---
 
 ## [0.1.0] - 2026-06-19
 
-### Added
-- Initial MVP release of business analysis report tools
-- Backend: FastAPI with SQLAlchemy
-- Frontend: React + TypeScript + Vite
-- Data source management (PostgreSQL, SQLite, OpenGauss, DWS)
-- Report definition and generation
-- Report preview with Chart.js visualization
-- SQL data explorer with syntax highlighting
-- Scheduled report execution
-- Excel and HTML export formats
+### 新增
+- 经营分析报表系统 MVP 初始版本
+- 后端：FastAPI + SQLAlchemy
+- 前端：React + TypeScript + Vite
+- 数据源管理（支持 PostgreSQL、SQLite、OpenGauss、DWS）
+- 报表定义和生成
+- 报表预览（Chart.js 可视化）
+- SQL 数据探索器（语法高亮）
+- 定时任务执行
+- Excel 和 HTML 导出格式
