@@ -202,7 +202,12 @@ class ReportGenerator:
         except SQLAlchemyError as exc:
             raise ReportGeneratorError(f"Query execution failed: {exc}") from exc
 
-    def render_html(self, data: dict[str, pd.DataFrame], report: Report) -> str:
+    def render_html(
+        self,
+        data: dict[str, pd.DataFrame],
+        report: Report,
+        base_url: str | None = None,
+    ) -> str:
         """Render report data as HTML with Chart.js charts."""
         # Default colors for charts
         default_colors = [
@@ -215,6 +220,10 @@ class ReportGenerator:
             "<html>",
             "<head>",
             "<meta charset='utf-8'>",
+        ]
+        if base_url:
+            html_parts.append(f"<base href='{h(base_url)}'>")
+        html_parts.extend([
             f"<title>{h(report.name)}</title>",
             "<script src='/static/chart.umd.min.js'></script>",
             "<style>",
@@ -241,7 +250,7 @@ class ReportGenerator:
             "</head>",
             "<body>",
             f"<h1>{h(report.name)}</h1>",
-        ]
+        ])
 
         if report.description:
             html_parts.append(f"<p>{h(report.description)}</p>")
@@ -444,6 +453,7 @@ def generate_report(
     parameters: dict[str, Any],
     db: Session,
     preview_only: bool = False,
+    base_url: str | None = None,
 ) -> dict[str, Any]:
     """Generate a report and optionally save to file."""
     # Get data source
@@ -471,7 +481,7 @@ def generate_report(
                 results[item.name] = pd.DataFrame()
 
         if preview_only or output_format == "html":
-            html_content = generator.render_html(results, report)
+            html_content = generator.render_html(results, report, base_url=base_url)
             if preview_only:
                 return {"preview_data": html_content}
             else:

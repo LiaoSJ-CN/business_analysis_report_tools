@@ -13,7 +13,7 @@ import type {
   SchedulerJob,
 } from '../types';
 
-const API_BASE = 'http://localhost:8000';
+export const API_BASE = 'http://localhost:8000';
 const ACCESS_KEY = 'access_token';
 const REFRESH_KEY = 'refresh_token';
 
@@ -201,6 +201,14 @@ export const reportApi = {
     format: 'html' | 'json' = 'html'
   ): Promise<{ preview_data: unknown }> => {
     const { data } = await api.get(`/reports/${reportId}/preview`, { params: { format } });
+    return data;
+  },
+
+  previewHtml: async (reportId: number): Promise<string> => {
+    const { data } = await api.get(`/reports/${reportId}/preview`, {
+      params: { format: 'html' },
+      responseType: 'text',
+    });
     return data;
   },
 

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from fastapi.responses import FileResponse, HTMLResponse
 from sqlalchemy.orm import Session
 
@@ -222,6 +222,7 @@ def generate_report_endpoint(request: ReportGenerateRequest, db: Session = Depen
 @router.get("/{report_id}/preview", response_class=HTMLResponse)
 def preview_report(
     report_id: int,
+    request: Request,
     format: str = Query(default="html", pattern="^(html|json)$"),
     db: Session = Depends(get_db),
 ):
@@ -239,6 +240,7 @@ def preview_report(
             parameters={},
             db=db,
             preview_only=True,
+            base_url=str(request.base_url),
         )
         return HTMLResponse(content=result["preview_data"])
     except ReportGeneratorError as exc:

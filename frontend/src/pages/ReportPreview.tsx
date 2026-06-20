@@ -16,7 +16,7 @@ export default function ReportPreview() {
   useEffect(() => {
     if (!id) return;
     let cancelled = false;
-     
+
     setLoading(true);
     reportApi
       .get(Number(id))
@@ -34,15 +34,24 @@ export default function ReportPreview() {
     };
   }, [id]);
 
+  // Release the blob URL on unmount or before each re-preview, so we don't
+  // leak the in-memory HTML document.
+  useEffect(() => {
+    if (!previewSrc.startsWith('blob:')) return;
+    return () => URL.revokeObjectURL(previewSrc);
+  }, [previewSrc]);
+
   const handlePreview = async () => {
     if (!id) return;
     setGenerating(true);
     try {
-      // Iframe src requests can't carry an Authorization header, so pass the
-      // access token via ?token= (the backend accepts this as a fallback).
-      const token = localStorage.getItem('access_token') ?? '';
-      const url = `http://localhost:8000/reports/${id}/preview?format=html&t=${Date.now()}&token=${encodeURIComponent(token)}`;
-      setPreviewSrc(url);
+      // Fetch rendered HTML with the Authorization header (axios attaches
+      // it automatically), then point the iframe at a blob: URL. The
+      // access token never enters the URL — no browser-history or
+      // access-log leakage like the old ?token= pattern.
+      const html = await reportApi.previewHtml(Number(id));
+      const blob = new Blob([html], { type: 'text/html' });
+      setPreviewSrc(URL.createObjectURL(blob));
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } };
       message.error(error.response?.data?.detail || '预览生成失败');

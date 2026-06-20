@@ -57,10 +57,6 @@ app.include_router(explorer.router)
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-# Serve locally-bundled Chart.js so generated HTML previews work without external CDN.
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-
 
 @app.get("/health")
 def health_check() -> dict:
