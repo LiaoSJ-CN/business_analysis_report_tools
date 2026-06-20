@@ -4,7 +4,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from apscheduler.triggers.cron import CronTrigger
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class ItemType(str, Enum):
@@ -240,11 +241,37 @@ class ScheduleTaskCreate(BaseModel):
     """Schema for creating a scheduled task."""
 
     report_id: int
-    cron_expression: str = Field(
-        ...,
-        pattern="^[0-9*,/-]+ [0-9*,/-]+ [0-9*,/-]+ "
-        "[0-9*,/-]+ [0-9*,/-]+ [0-9*,/-]+$",
-    )
+    cron_expression: str = Field(...)
     schedule_description: str | None = Field(default=None, max_length=255)
     is_active: bool = Field(default=True)
     notification_config: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("cron_expression")
+    @classmethod
+    def _validate_cron(cls, value: str) -> str:
+        """Delegate per-field range validation to APScheduler's CronTrigger.
+
+        Earlier versions used a brittle regex that only checked segment count
+        + character class, so e.g. ``99 9 * * * *`` slipped through Pydantic
+        and surfaced as a 400 from the scheduler router. Constructing
+        ``CronTrigger(...)`` is the authoritative check (same library that
+        actually parses the expression at job-add time), and lets invalid
+        expressions surface as 422 at request-parse time.
+        """
+        parts = value.split()
+        if len(parts) != 6:
+            raise ValueError(
+                "Cron expression must have 6 fields: min hour dom mon dow year"
+            )
+        try:
+            CronTrigger(
+                minute=parts[0],
+                hour=parts[1],
+                day=parts[2],
+                month=parts[3],
+                day_of_week=parts[4],
+                year=parts[5],
+            )
+        except (ValueError, TypeError) as exc:
+            raise ValueError(f"Invalid cron expression: {exc}") from exc
+        return value

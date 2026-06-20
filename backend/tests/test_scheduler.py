@@ -3,7 +3,7 @@
 Just the surface: status requires auth, sync is idempotent, and the
 response shape is stable so the frontend keeps working. Plus the P1
 path: notification_config + schedule_description persist to DB and
-survive /sync, and bad cron is rejected with 422 (Pydantic regex).
+survive /sync, and bad cron is rejected with 422 (Pydantic validator).
 """
 
 import uuid
@@ -150,7 +150,7 @@ def test_create_job_persists_schedule_description(
 def test_create_job_rejects_bad_cron_with_422(
     client: TestClient, auth_headers: dict, temp_report
 ) -> None:
-    """Pydantic regex on ScheduleTaskCreate.cron_expression returns 422."""
+    """Pydantic validator on ScheduleTaskCreate.cron_expression returns 422."""
     rid = temp_report
     r = client.post(
         f"/scheduler/jobs/{rid}",
@@ -158,6 +158,59 @@ def test_create_job_rejects_bad_cron_with_422(
         json={"report_id": rid, "cron_expression": "bogus"},
     )
     assert r.status_code == 422, r.text
+
+
+def test_create_job_rejects_out_of_range_minute(
+    client: TestClient, auth_headers: dict, temp_report
+) -> None:
+    """Minute 99 (must be 0-59) is rejected by the cron validator."""
+    rid = temp_report
+    r = client.post(
+        f"/scheduler/jobs/{rid}",
+        headers=auth_headers,
+        json={"report_id": rid, "cron_expression": "99 9 * * * *"},
+    )
+    assert r.status_code == 422, r.text
+
+
+def test_create_job_rejects_out_of_range_hour(
+    client: TestClient, auth_headers: dict, temp_report
+) -> None:
+    """Hour 25 (must be 0-23) is rejected by the cron validator."""
+    rid = temp_report
+    r = client.post(
+        f"/scheduler/jobs/{rid}",
+        headers=auth_headers,
+        json={"report_id": rid, "cron_expression": "5 25 * * * *"},
+    )
+    assert r.status_code == 422, r.text
+
+
+def test_create_job_rejects_out_of_range_month(
+    client: TestClient, auth_headers: dict, temp_report
+) -> None:
+    """Month 13 (must be 1-12) is rejected by the cron validator."""
+    rid = temp_report
+    r = client.post(
+        f"/scheduler/jobs/{rid}",
+        headers=auth_headers,
+        json={"report_id": rid, "cron_expression": "5 9 * 13 * *"},
+    )
+    assert r.status_code == 422, r.text
+
+
+def test_create_job_accepts_valid_complex_cron(
+    client: TestClient, auth_headers: dict, temp_report
+) -> None:
+    """List + range + dow range must pass validation (covers the full
+    6-field cron grammar, not just the existing literal-everywhere shape)."""
+    rid = temp_report
+    r = client.post(
+        f"/scheduler/jobs/{rid}",
+        headers=auth_headers,
+        json={"report_id": rid, "cron_expression": "0,30 9-17 * * 1-5 *"},
+    )
+    assert r.status_code == 200, r.text
 
 
 def test_sync_restores_notification_config(
