@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Table, Select, Button, Space, Card, message, Alert, Spin, Popconfirm, Input } from 'antd';
-import { PlayCircleOutlined, SaveOutlined, ClearOutlined, ExportOutlined, DeleteOutlined, PlusOutlined, BranchesOutlined } from '@ant-design/icons';
+import { Table, Select, Button, Space, Card, message, Alert, Spin, Popconfirm, Input, Tag } from 'antd';
+import { PlayCircleOutlined, SaveOutlined, ClearOutlined, ExportOutlined, DeleteOutlined, PlusOutlined, BranchesOutlined, HistoryOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
-import type { DataSource } from '../types';
+import type { DataSource, HistoryEntry } from '../types';
 import { dataSourceApi, explorerApi } from '../api';
 import SqlEditor from '../components/SqlEditor';
 
@@ -85,10 +85,61 @@ function saveTemplates(templates: SavedTemplate[]): void {
   localStorage.setItem('sqlTemplates:v2', JSON.stringify(templates));
 }
 
+// ============ Execution history (localStorage-backed) ============
+
+// Capped so localStorage (~5MB) can't fill from runaway re-runs.
+const HISTORY_MAX_ENTRIES = 100;
+const HISTORY_STORAGE_KEY = 'sqlHistory:v1';
+// If the same SQL+ds is executed again within this window, the previous
+// entry is replaced (moved to top with fresh ts/row_count/error) instead
+// of growing the list. Avoids accidental double-click / Cmd+Enter spam.
+const HISTORY_DEDUP_WINDOW_MS = 5000;
+
+function loadHistory(): HistoryEntry[] {
+  try {
+    const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) return parsed as HistoryEntry[];
+    }
+  } catch {
+    // Ignore parse errors
+  }
+  return [];
+}
+
+function appendHistory(history: HistoryEntry[], entry: HistoryEntry): HistoryEntry[] {
+  // Dedup: drop any prior entry with the same ds+sql inside the window —
+  // the new entry replaces it at the top with the latest ts/result.
+  const filtered = history.filter(
+    (h) => !(h.ds_id === entry.ds_id && h.sql === entry.sql && entry.ts - h.ts < HISTORY_DEDUP_WINDOW_MS)
+  );
+  const next = [entry, ...filtered].slice(0, HISTORY_MAX_ENTRIES);
+  localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
+  return next;
+}
+
+function removeHistoryEntry(history: HistoryEntry[], id: string): HistoryEntry[] {
+  const next = history.filter((h) => h.id !== id);
+  localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(next));
+  return next;
+}
+
+function clearHistoryStorage(): void {
+  localStorage.removeItem(HISTORY_STORAGE_KEY);
+}
+
+function newHistoryId(): string {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export default function DataExplorer() {
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [selectedDs, setSelectedDs] = useState<number | null>(null);
-  const [sql, setSql] = useState('SELECT * FROM gl_revenue LIMIT 20');
+  // Universal default that runs on every supported backend (sqlite,
+  // postgresql, opengauss, dws) — gives new users a friendly placeholder
+  // instead of failing because the seed table isn't there.
+  const [sql, setSql] = useState("SELECT '请编辑 SQL 后执行查询' AS hint, current_timestamp AS now");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<{
     success: boolean;
@@ -103,6 +154,10 @@ export default function DataExplorer() {
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [isDirty, setIsDirty] = useState(false); // Track if current template has unsaved changes
+
+  // Execution history state
+  const [history, setHistory] = useState<HistoryEntry[]>(() => loadHistory());
+  const [historyDsFilter, setHistoryDsFilter] = useState<number | null>(null);
 
   useEffect(() => {
     dataSourceApi.list().then((data) => {
@@ -149,6 +204,11 @@ export default function DataExplorer() {
 
     setLoading(true);
     setResult(null);
+    // Snapshot DS name at execute time — survives the source being renamed
+    // or deleted before the user looks back at history.
+    const ds = dataSources.find((d) => d.id === selectedDs);
+    const dsName = ds?.name || `ds#${selectedDs}`;
+    const sqlSnapshot = sql.trim();
     try {
       const data = await explorerApi.query(selectedDs, sql);
       setResult(data);
@@ -157,11 +217,64 @@ export default function DataExplorer() {
       } else {
         message.success('查询成功，返回 ' + data.row_count + ' 条');
       }
+      setHistory((h) =>
+        appendHistory(h, {
+          id: newHistoryId(),
+          ts: Date.now(),
+          ds_id: selectedDs,
+          ds_name: dsName,
+          sql: sqlSnapshot,
+          row_count: data.success ? data.row_count : null,
+          success: data.success,
+          error: data.error,
+        })
+      );
     } catch {
       message.error('查询执行失败');
+      // Network-level failure — still log so user can see what they tried.
+      setHistory((h) =>
+        appendHistory(h, {
+          id: newHistoryId(),
+          ts: Date.now(),
+          ds_id: selectedDs,
+          ds_name: dsName,
+          sql: sqlSnapshot,
+          row_count: null,
+          success: false,
+          error: '请求失败',
+        })
+      );
     } finally {
       setLoading(false);
     }
+  };
+
+  // Reload a historical SQL into the editor. Switches the active data source
+  // if the entry was executed against a different one.
+  const handleLoadFromHistory = (entry: HistoryEntry) => {
+    if (entry.ds_id !== selectedDs) {
+      setSelectedDs(entry.ds_id);
+    }
+    setSql(entry.sql);
+    // If a template is selected, the loaded SQL may diverge from it.
+    if (selectedTemplateId) {
+      const t = templates.find((x) => x.id === selectedTemplateId);
+      if (!t || t.sql !== entry.sql) {
+        setIsDirty(true);
+      }
+    }
+    message.success('已加载历史 SQL，可编辑后再执行');
+  };
+
+  const handleClearHistory = () => {
+    clearHistoryStorage();
+    setHistory([]);
+    setHistoryDsFilter(null);
+    message.success('历史已清空');
+  };
+
+  const handleDeleteHistoryEntry = (id: string) => {
+    setHistory((h) => removeHistoryEntry(h, id));
   };
 
   const handleFormat = () => {
@@ -300,6 +413,64 @@ export default function DataExplorer() {
       }))
     : [];
 
+  // Apply ds filter to history (newest first, already sorted at insert time).
+  const filteredHistory: HistoryEntry[] = historyDsFilter == null
+    ? history
+    : history.filter((h) => h.ds_id === historyDsFilter);
+
+  const historyColumns: ColumnsType<HistoryEntry> = [
+    {
+      title: '时间',
+      dataIndex: 'ts',
+      width: 160,
+      render: (ts: number) => new Date(ts).toLocaleString('zh-CN'),
+    },
+    {
+      title: '数据源',
+      dataIndex: 'ds_name',
+      width: 140,
+      ellipsis: true,
+    },
+    {
+      title: 'SQL',
+      dataIndex: 'sql',
+      ellipsis: true,
+      render: (s: string) => (
+        <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{s}</span>
+      ),
+    },
+    {
+      title: '结果',
+      width: 110,
+      render: (_, entry: HistoryEntry) =>
+        entry.success
+          ? <Tag color="green">{entry.row_count ?? 0} 行</Tag>
+          : <Tag color="red" title={entry.error}>失败</Tag>,
+    },
+    {
+      title: '操作',
+      width: 140,
+      render: (_, entry: HistoryEntry) => (
+        <Space size="small">
+          <Button type="link" size="small" onClick={() => handleLoadFromHistory(entry)}>
+            复用
+          </Button>
+          <Popconfirm
+            title="删除此条历史?"
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => handleDeleteHistoryEntry(entry.id)}
+          >
+            <Button type="link" size="small" danger>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
+
   return (
     <div style={{ padding: 24 }}>
       <h2 style={{ marginBottom: 16 }}>数据探索</h2>
@@ -410,6 +581,67 @@ export default function DataExplorer() {
             </Button>
           )}
         </Space>
+      </Card>
+
+      {/* 执行历史 */}
+      <Card
+        title={
+          <Space>
+            <HistoryOutlined />
+            <span>执行历史</span>
+            <span style={{ color: '#999', fontSize: 12 }}>
+              ({filteredHistory.length}{historyDsFilter != null ? ` / ${history.length}` : ''})
+            </span>
+          </Space>
+        }
+        extra={
+          <Space>
+            <Select
+              placeholder="按数据源过滤"
+              allowClear
+              style={{ width: 180 }}
+              size="small"
+              value={historyDsFilter}
+              onChange={(v) => setHistoryDsFilter(v ?? null)}
+            >
+              {dataSources.map((ds) => (
+                <Option key={ds.id} value={ds.id}>{ds.name}</Option>
+              ))}
+            </Select>
+            <Popconfirm
+              title="确定清空所有执行历史?"
+              description="此操作不可撤销"
+              okText="清空"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+              onConfirm={handleClearHistory}
+            >
+              <Button
+                size="small"
+                danger
+                icon={<DeleteOutlined />}
+                disabled={history.length === 0}
+              >
+                清空
+              </Button>
+            </Popconfirm>
+          </Space>
+        }
+        style={{ marginBottom: 16 }}
+      >
+        {history.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 24, color: '#999' }}>
+            暂无执行历史，执行一次查询后会出现在这里
+          </div>
+        ) : (
+          <Table
+            columns={historyColumns}
+            dataSource={filteredHistory}
+            rowKey="id"
+            size="small"
+            pagination={{ pageSize: 10, showSizeChanger: true, showTotal: (t: number) => '共 ' + t + ' 条' }}
+          />
+        )}
       </Card>
 
       {/* 查询结果 */}

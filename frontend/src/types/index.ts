@@ -201,3 +201,17 @@ export interface SchedulerStatus {
   is_running: boolean;
   jobs: SchedulerJob[];
 }
+
+// One row in the DataExplorer execution history (localStorage-backed).
+// `ds_name` is a snapshot, not a live reference — survives the source
+// being renamed or deleted.
+export interface HistoryEntry {
+  id: string;
+  ts: number;
+  ds_id: number;
+  ds_name: string;
+  sql: string;
+  row_count: number | null;
+  success: boolean;
+  error?: string;
+}
