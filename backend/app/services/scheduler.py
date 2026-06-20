@@ -107,9 +107,13 @@ class ReportScheduler:
         }
 
     def sync_with_database(self, db: Session) -> None:
-        """Sync scheduler jobs with database.
+        """Reconcile scheduler jobs with the database.
 
-        This should be called on startup to load all active scheduled reports.
+        Adds or updates jobs for active scheduled reports, and removes
+        jobs whose DB row no longer matches the active filter (e.g. a
+        report was unscheduled via DELETE /scheduler/jobs/{id}). The
+        method is idempotent and safe to call periodically — that's the
+        contract the sidecar relies on.
         """
         # Get all active scheduled reports from database
         reports = db.query(Report).filter(
@@ -117,6 +121,7 @@ class ReportScheduler:
             Report.is_active == True,  # noqa: E712
             Report.cron_expression.isnot(None),  # noqa: E712
         ).all()
+        active_ids = {r.id for r in reports}
 
         for report in reports:
             try:
@@ -127,6 +132,20 @@ class ReportScheduler:
                 )
             except Exception as exc:
                 logger.error(f"Failed to schedule report {report.id}: {exc}")
+
+        # Drop jobs whose DB row no longer qualifies (unscheduled, paused,
+        # deleted). Without this, a periodic re-sync would leak stale jobs.
+        for job in self.scheduler.get_jobs():
+            job_id = job.id
+            if not job_id.startswith("report_"):
+                continue
+            try:
+                report_id = int(job_id[len("report_"):])
+            except ValueError:
+                continue
+            if report_id not in active_ids:
+                self.scheduler.remove_job(job_id)
+                logger.info(f"Removed orphan scheduler job {job_id}")
 
 
 # Global scheduler instance

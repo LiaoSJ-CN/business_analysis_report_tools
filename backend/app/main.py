@@ -22,19 +22,25 @@ Base.metadata.create_all(bind=engine)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
-    # Startup
-    scheduler = get_scheduler()
-    db = SessionLocal()
-    try:
-        scheduler.sync_with_database(db)
-        scheduler.start()
-    finally:
-        db.close()
+    # Startup — skip scheduler when SCHEDULER_DISABLED=true so a separate
+    # ``app.scheduler_runner`` sidecar can own the tick loop. The web
+    # process still serves /scheduler/* endpoints (they manipulate the
+    # in-process APScheduler instance for status visibility), but never
+    # starts the tick loop.
+    if not settings.scheduler_disabled:
+        scheduler = get_scheduler()
+        db = SessionLocal()
+        try:
+            scheduler.sync_with_database(db)
+            scheduler.start()
+        finally:
+            db.close()
 
     yield
 
-    # Shutdown
-    scheduler.shutdown()
+    # Shutdown — only meaningful when we actually started the scheduler.
+    if not settings.scheduler_disabled:
+        get_scheduler().shutdown()
 
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)

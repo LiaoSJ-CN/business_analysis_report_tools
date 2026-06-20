@@ -4,8 +4,11 @@ Just the surface: status requires auth, sync is idempotent, and the
 response shape is stable so the frontend keeps working. Plus the P1
 path: notification_config + schedule_description persist to DB and
 survive /sync, and bad cron is rejected with 422 (Pydantic validator).
+Plus S2: sync reconciliation, sidecar runner lifecycle, and the
+SCHEDULER_DISABLED flag that lets a sidecar own the tick loop.
 """
 
+import threading
 import uuid
 
 import pytest
@@ -242,3 +245,166 @@ def test_sync_restores_notification_config(
         }
     finally:
         db.close()
+
+# ---------- S2: sync reconciliation (sidecar friendliness) ----------
+
+
+def test_sync_with_database_removes_orphan_job(
+    client: TestClient, auth_headers: dict, temp_report
+) -> None:
+    """Sidecar re-syncs every interval. If a report was unscheduled
+    (is_scheduled=False) via DELETE, the APScheduler job from before
+    must be removed — otherwise the job keeps ticking on the old cron."""
+    rid = temp_report
+    payload = {"report_id": rid, "cron_expression": "0 9 * * * *"}
+    r = client.post(f"/scheduler/jobs/{rid}", headers=auth_headers, json=payload)
+    assert r.status_code == 200, r.text
+
+    scheduler = get_scheduler()
+    assert scheduler.get_job_status(rid) is not None
+
+    # Simulate DELETE clearing the schedule — drop DB fields directly so we
+    # exercise the reconciliation path independently of the router.
+    db = SessionLocal()
+    try:
+        row = db.query(Report).filter(Report.id == rid).first()
+        assert row is not None
+        row.is_scheduled = False
+        row.cron_expression = None
+        db.commit()
+    finally:
+        db.close()
+
+    scheduler.sync_with_database(SessionLocal())
+
+    assert scheduler.get_job_status(rid) is None, (
+        "sync_with_database must drop APScheduler jobs whose DB row "
+        "no longer matches the active filter"
+    )
+
+
+def test_sync_with_database_is_idempotent(
+    client: TestClient, auth_headers: dict, temp_report
+) -> None:
+    """Calling sync twice in a row must not duplicate or drop jobs —
+    this is the property the sidecar relies on for its periodic loop."""
+    rid = temp_report
+    r = client.post(
+        f"/scheduler/jobs/{rid}",
+        headers=auth_headers,
+        json={"report_id": rid, "cron_expression": "0 9 * * * *"},
+    )
+    assert r.status_code == 200, r.text
+
+    scheduler = get_scheduler()
+    db_factory = SessionLocal
+    scheduler.sync_with_database(db_factory())
+    scheduler.sync_with_database(db_factory())
+
+    status = scheduler.get_job_status(rid)
+    assert status is not None
+
+
+# ---------- S2.4: sidecar runner + SCHEDULER_DISABLED flag ----------
+
+
+def test_scheduler_runner_starts_and_shuts_down() -> None:
+    """run() must call scheduler.start() on entry and shutdown() on exit,
+    even when the stop event is pre-set and the loop body never executes."""
+    from app.scheduler_runner import run
+
+    scheduler = get_scheduler()
+    if scheduler._is_running:
+        scheduler.shutdown()
+
+    stop = threading.Event()
+    stop.set()  # exits the while-loop on the first check
+
+    run(stop, resync_interval=0)
+
+    assert not scheduler._is_running, "run() must call scheduler.shutdown() on exit"
+
+
+def test_scheduler_runner_calls_sync_until_stopped() -> None:
+    """run() must keep calling sync_with_database until stop is set,
+    then exit and shut down. Mock the DB-bound sync so the test stays
+    in-process and doesn't depend on report rows."""
+    from app.scheduler_runner import run
+
+    scheduler = get_scheduler()
+    if scheduler._is_running:
+        scheduler.shutdown()
+
+    sync_count = 0
+    sync_lock = threading.Lock()
+    stop = threading.Event()
+    original_sync = scheduler.sync_with_database
+
+    def mock_sync(db) -> None:
+        nonlocal sync_count
+        with sync_lock:
+            sync_count += 1
+            if sync_count >= 3:
+                stop.set()
+
+    scheduler.sync_with_database = mock_sync
+    try:
+        run(stop, resync_interval=0)
+    finally:
+        scheduler.sync_with_database = original_sync
+
+    assert sync_count >= 3
+    assert not scheduler._is_running
+
+
+def test_scheduler_runner_survives_sync_errors() -> None:
+    """A transient DB error inside one sync iteration must not kill the
+    loop — the sidecar's whole point is staying up across hiccups."""
+    from app.scheduler_runner import run
+
+    scheduler = get_scheduler()
+    if scheduler._is_running:
+        scheduler.shutdown()
+
+    call_count = 0
+    call_lock = threading.Lock()
+    stop = threading.Event()
+    original_sync = scheduler.sync_with_database
+
+    def flaky_sync(db) -> None:
+        nonlocal call_count
+        with call_lock:
+            call_count += 1
+            n = call_count
+        if n == 1:
+            raise RuntimeError("simulated transient DB failure")
+        stop.set()
+
+    scheduler.sync_with_database = flaky_sync
+    try:
+        run(stop, resync_interval=0)
+    finally:
+        scheduler.sync_with_database = original_sync
+
+    assert call_count >= 2, "loop must retry after a sync error"
+    assert not scheduler._is_running
+
+
+def test_scheduler_disabled_lifespan_skips_startup(monkeypatch) -> None:
+    """With SCHEDULER_DISABLED=true, the FastAPI lifespan must NOT start
+    APScheduler — that's the contract that lets a sidecar own the tick
+    loop without fighting the web process."""
+    from app.main import app
+
+    monkeypatch.setattr("app.config.settings.scheduler_disabled", True)
+
+    scheduler = get_scheduler()
+    if scheduler._is_running:
+        scheduler.shutdown()
+
+    with TestClient(app):
+        pass
+
+    assert not scheduler._is_running, (
+        "lifespan must not start APScheduler when SCHEDULER_DISABLED=true"
+    )

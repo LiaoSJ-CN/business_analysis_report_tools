@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     database_url: str = f"sqlite:///{Path(__file__).parent.parent / 'app.db'}"
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
+    # Sidecar deployment (S2): when true, the web process skips starting
+    # APScheduler. Run ``python -m app.scheduler_runner`` alongside the
+    # web workers so only one process drives the tick loop — fixes the
+    # "gunicorn -w N → job runs N times" bug.
+    scheduler_disabled: bool = False
+    scheduler_resync_interval: int = 30
+
     # Auth — single shared admin user backed by an env-var password.
     admin_username: str = "admin"
     admin_password: str = "admin"

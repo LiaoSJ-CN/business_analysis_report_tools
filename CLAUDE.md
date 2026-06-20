@@ -137,6 +137,7 @@ mypy app
 ### 后端 (`backend/app/`)
 
 - `main.py` — FastAPI 入口。注册路由、配置 CORS、启动时创建 SQLAlchemy 表，并启动 APScheduler 单例。
+- `scheduler_runner.py` — Sidecar 进程入口（`python -m app.scheduler_runner`）。独占 APScheduler tick 循环，配合 web 进程的 `SCHEDULER_DISABLED=true` 解决 `gunicorn -w N` 下 job 跑 N 次的问题。
 - `config.py` — 基于 Pydantic-settings 的配置，从 `backend/.env` 加载。
 - `database.py` — 元数据库的 SQLAlchemy engine/session 设置。
 - `models/` — SQLAlchemy 模型：
@@ -177,10 +178,19 @@ mypy app
 
 ### 定时调度
 
-- APScheduler 运行在后端进程内。
-- 启动时 `main.py` 调用 `scheduler.sync_with_database()` 加载所有已启用调度的活跃报表。
-- Cron 表达式使用 6 个字段：`min hour dom mon dow year`。
+- APScheduler 运行在后端进程内（默认）。启动时 `main.py` 调用 `scheduler.sync_with_database()` 加载所有已启用调度的活跃报表。
+- Cron 表达式使用 6 个字段：`min hour dom mon dow year`；由 `ScheduleTaskCreate._validate_cron` 在 Pydantic 层用 `CronTrigger` 校验每段范围（越界返回 422）。
+- `sync_with_database()` 是 reconcile，不是纯 add：会清理 DB 里已不再 active 的孤立 job（DELETE 后的孤儿）。
 - 定时报表支持 webhook 通知（按任务配置）。
+
+#### 多 worker 部署（sidecar）
+
+`app/services/scheduler.py` 的 `_scheduler` 是进程内单例。`gunicorn -w N` 下每个 worker 会独立跑 APScheduler，同一个 job 每个 tick 执行 N 次。修复方案：
+
+1. Web 进程设 `SCHEDULER_DISABLED=true`（在 `backend/.env`），启动时跳过 `scheduler.start()` 和 `sync_with_database()`。`/scheduler/*` API 端点仍然可用（它们操作 DB 和 in-process APScheduler 实例的元数据，不实际 tick）。
+2. 单独跑 `python -m app.scheduler_runner` 一个 sidecar 进程。该进程独占调度器 tick 循环，每 `SCHEDULER_RESYNC_INTERVAL` 秒（默认 30）从 DB 重读一次，幂等 reconcile。SIGTERM/SIGINT 触发 graceful shutdown。
+
+⚠️ sidecar 必须只跑一个实例；跑多个 = 原 bug 重现。需要多实例 HA 时升级到 celery beat / 外部 leader 选举。
 
 ## 配置说明
 
