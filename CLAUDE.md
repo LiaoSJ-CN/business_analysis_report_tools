@@ -92,16 +92,35 @@ npm run lint
 
 ### 运行测试
 
-当前仓库没有测试文件。后续添加测试后，使用以下命令运行：
+后端测试套件位于 `backend/tests/`（pytest，62 个用例，~0.15s 跑完）。先装依赖：
 
 ```bash
 cd backend
 source .venv/bin/activate
+pip install pytest pytest-asyncio httpx
+```
+
+常用命令：
+
+```bash
+# 全部测试
 pytest
 
-# 运行单个测试
-pytest path/to/test_file.py::test_function_name
+# 关键字过滤
+pytest -k xss
+
+# 单个测试
+pytest tests/test_engine_cache.py::test_evict_engine_unknown_id_is_noop
+
+# 只跑上次失败的
+pytest --lf
 ```
+
+注意：
+- `conftest.py` 在 import 阶段把 `JWT_SECRET_KEY` 设成 `pytest-secret-do-not-use-in-prod`，保证测试间 token 稳定；不要在生产环境用这个值
+- `test_xss_regression` / `test_preview_endpoint` / `test_explorer` 依赖 seed 数据（`scripts/seed_reports.py`），无 seed 时自动 `pytest.skip`，不会失败
+- `engine_cache_cleanup` fixture 会清空模块级 engine cache，避免跨测试串扰
+- 旧的 `backend/scripts/smoke_*.py` 已在 `308e97a` 删掉，不要再恢复
 
 ### 后端类型检查与代码检查
 
