@@ -4,6 +4,11 @@
 
 ## [未发布]
 
+
+---
+
+## [0.2.0] - 2026-06-20
+
 ### 安全修复
 - **严重**: 修复 `report_generator.py` 中的 SQL 注入漏洞，使用参数化查询
 - **严重**: 在 `ReportPreview.tsx` 中添加 XSS 防护，使用 DOMPurify 进行 HTML 消毒
