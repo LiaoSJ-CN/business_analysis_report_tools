@@ -8,11 +8,15 @@
 - **严重**: 修复 `report_generator.py` 中的 SQL 注入漏洞，使用参数化查询
 - **严重**: 在 `ReportPreview.tsx` 中添加 XSS 防护，使用 DOMPurify 进行 HTML 消毒
 - 修复 `scheduler.py` 中的异常吞没问题，改为正确的日志记录
+- 预览 iframe 改为 blob-URL 模式：前端用 `Authorization` 头取 HTML → `URL.createObjectURL(new Blob([html]))` → `iframe.src`，消除 `?token=` 出现在 URL 中泄漏到浏览器历史/访问日志的风险
+- `report_generator.render_html` 接受可选 `base_url` 参数并在 HTML head 注入 `<base href>`，保证相对路径 `/static/chart.umd.min.js` 在 blob-URL iframe 上下文（以及导出的离线 HTML 文件）中能正确解析到后端
 
 ### 代码质量
 - 修复 ESLint 警告 (set-state-in-effect, exhaustive-deps)
 - 修复后端 ruff 检查问题
 - 修复 `formatSql` 函数的幂等性问题
+- 清理 `backend/app/main.py` 中重复的 `app.mount("/static", ...)` 块
+- 修复 `report_generator.py` 中 `html_parts.extend([...])` 缺少闭括号的语法错误（该文件之前无法被 import）
 
 ### 前端优化
 - DataExplorer 用户体验优化：内联模板编辑，无需弹窗
