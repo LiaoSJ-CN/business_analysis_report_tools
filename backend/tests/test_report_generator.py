@@ -249,9 +249,28 @@ def test_render_html_metric_card_renders_value() -> None:
     data = {"m": pd.DataFrame({"count": [12345]})}
     html = g.render_html(data, report)
     assert "class='metric'" in html
-    # The exact format ("12345" vs "12,345" vs "12,345.00") depends on the
-    # underlying numpy dtype — the digit pattern itself must appear.
-    assert "12345" in html, f"expected 12345 in:\n{html[:400]}"
+    # np.int64 now goes through numbers.Integral and gets a thousands separator.
+    assert "12,345" in html, f"expected 12,345 in:\n{html[:400]}"
+
+
+def test_render_html_metric_card_formats_float64_with_separator() -> None:
+    """np.float64 goes through numbers.Real and gets ',' + 2 decimals."""
+    g = _gen()
+    report = SimpleNamespace(
+        name="r",
+        description=None,
+        items=[
+            SimpleNamespace(
+                name="m",
+                item_type="metric",
+                table_name="x",
+                display_config={},
+            )
+        ],
+    )
+    data = {"m": pd.DataFrame({"rate": [1234.5]})}
+    html = g.render_html(data, report)
+    assert "1,234.50" in html, f"expected 1,234.50 in:\n{html[:400]}"
 
 
 def test_render_html_table_renders_columns_and_rows() -> None:

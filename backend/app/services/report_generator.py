@@ -1,5 +1,6 @@
 """Service for generating business analysis reports."""
 
+import numbers
 import re
 import threading
 from datetime import datetime
@@ -487,13 +488,21 @@ class ReportGenerator:
         return "".join(html)
 
     def _format_value(self, val: Any) -> str:
-        """Format a value for display."""
+        """Format a value for display.
+
+        Uses ``numbers.Integral``/``numbers.Real`` ABCs instead of ``int``/``float``
+        so ``np.int64`` and ``np.float64`` (which lose their built-in inheritance
+        in numpy >= 2.0) still get thousands separators and float precision.
+        """
         if pd.isna(val):
             return ""
-        if isinstance(val, float):
-            return f"{val:,.2f}"
-        if isinstance(val, int):
-            return f"{val:,}"
+        # bool is a subclass of int; render as "True"/"False" instead of "1"/"0".
+        if isinstance(val, bool):
+            return str(val)
+        if isinstance(val, numbers.Integral):
+            return f"{int(val):,}"
+        if isinstance(val, numbers.Real):
+            return f"{float(val):,.2f}"
         return h(str(val))
 
 
