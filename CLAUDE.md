@@ -49,6 +49,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 iSee数据分析工作台 — 支撑数据分析人员连接不同数据源，进行 SQL 数据探索和报表分析。支持可视化拖拽编辑器构建报表，以及定时任务自动生成与通知。
 
+设计模式与架构决策详见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。
+
 - **后端**: FastAPI + SQLAlchemy + Pydantic，Python ≥ 3.11
 - **前端**: React 19 + TypeScript + Vite + Ant Design + Chart.js + CodeMirror 6
 - **元数据库**: 默认 SQLite（`backend/app.db`），可通过 `DATABASE_URL` 配置

@@ -162,4 +162,4 @@ docker compose up -d
 # 访问 http://localhost:8080
 ```
 
-详细说明见 [DEPLOY.md](DEPLOY.md)。环境变量完整列表见 `backend/.env.example`。版本变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+详细说明见 [DEPLOY.md](DEPLOY.md)。设计模式与架构决策见 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)。环境变量完整列表见 `backend/.env.example`。版本变更记录见 [CHANGELOG.md](CHANGELOG.md)。
