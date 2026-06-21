@@ -90,6 +90,40 @@ npm run build
 npm run lint
 ```
 
+### Docker
+
+```bash
+# 构建并启动全部服务
+docker compose up -d
+
+# 仅构建镜像（不启动）
+docker compose build
+
+# 启动调度器 sidecar（仅在需要定时报表时）
+docker compose --profile scheduler up -d
+
+# 停止
+docker compose down
+```
+
+启动后访问 `http://localhost:8080`。
+
+### 数据库迁移（Alembic）
+
+```bash
+cd backend
+source .venv/bin/activate
+
+# 生成迁移（自动检测模型变化）
+python -m alembic revision --autogenerate -m "描述"
+
+# 执行迁移到最新版本
+python -m alembic upgrade head
+
+# 查看当前版本
+python -m alembic current
+```
+
 ### 运行测试
 
 后端测试套件位于 `backend/tests/`（pytest，80 个用例，~0.2s 跑完）。先装依赖：
@@ -157,6 +191,7 @@ mypy app
   - `connection.py` — 构建 SQLAlchemy 连接 URL 并测试连通性。将 `opengauss`/`dws`/`postgresql` 映射为 `postgresql+psycopg2`。
   - `report_generator.py` — 根据 `ReportItem` 配置构建参数化 SQL、执行查询，并渲染 HTML（Chart.js）或 Excel（openpyxl）输出。
   - `scheduler.py` — 封装 APScheduler 的 `ReportScheduler` 单例；启动时从数据库加载已启用调度的报表，并通过 `generate_report` 生成报表。
+- `alembic/` — 数据库迁移脚本目录（Alembic），`env.py` 从 `app.config.settings` 动态获取 `database_url`，支持 autogenerate。
 
 ### 前端 (`frontend/src/`)
 
@@ -171,6 +206,16 @@ mypy app
   - `ReportPreview.tsx` — 通过 `Authorization` 头取 HTML → blob URL → iframe（`sandbox="allow-scripts"`）。XSS 防护在后端（`html.escape`），不在前端。
   - `Scheduler.tsx` — 基于 Cron 表达式的调度界面。
 - `components/SqlEditor.tsx` — 可复用的 CodeMirror 6 SQL 编辑器。
+
+### API 代理机制
+
+前端通过 `/api` 相对路径调用后端，由代理层剥离前缀后转发：
+
+- **开发环境**：`vite.config.ts` 的 `server.proxy` 把 `/api` 转发到 `http://localhost:8000`，自动 `rewrite` 去除前缀
+- **Docker 生产环境**：`frontend/nginx.conf` 的 `location /api/` 通过 `proxy_pass http://backend:8000/`（尾部斜杠剥离前缀）
+- **手动部署**：见 `DEPLOY.md` 方式二的 nginx 示例
+
+`VITE_API_BASE_URL` 环境变量可在构建时覆盖默认值 `/api`。
 
 ### 报表生成流程
 
@@ -215,6 +260,7 @@ mypy app
 | `LOG_LEVEL` | `INFO` | 日志级别（DEBUG/INFO/WARNING/ERROR） |
 | `DB_POOL_SIZE` | `5` | 数据库连接池大小（仅 PostgreSQL） |
 | `DB_MAX_OVERFLOW` | `10` | 连接池溢出上限（仅 PostgreSQL） |
+| `GENERATED_REPORTS_DIR` | `backend/generated_reports/` | 报表输出目录 |
 
 示例 `backend/.env`：
 
@@ -238,3 +284,8 @@ ENCRYPTION_KEY=<生成一个 Fernet key>
 - `DataSource` 模型即使对 SQLite 也要求填写 `host`、`port`、`username`、`password`；配置 SQLite 数据源时可使用占位值。
 - 数据探索器会拒绝不以 `SELECT` 开头或包含危险关键字的 SQL。
 - 报表预览走 iframe `src=` 直接加载后端生成的 HTML；**后端已用 `html.escape` 转义所有用户数据**。iframe 加 `sandbox="allow-scripts"` 防逃逸到父页面。
+- Docker 相关文件：`backend/Dockerfile`、`frontend/Dockerfile`、`docker-compose.yml`、`frontend/nginx.conf`。前端默认构建到 `/usr/share/nginx/html`，nginx 监听 80 端口。
+- `deploy/` 目录含 systemd service 和 PM2 config，用于生产环境管理调度器 sidecar 进程。
+- `.github/workflows/ci.yml` — GitHub Actions 自动执行 lint、类型检查、测试和构建。
+- 新增后端模块时需 import 到 `backend/alembic/env.py`，否则 autogenerate 不会检测到新表。
+- `backend/alembic.ini` 已精简，sqlalchemy.url 由 `env.py` 从 `settings.database_url` 动态获取。
