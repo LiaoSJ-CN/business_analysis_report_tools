@@ -3,8 +3,11 @@ services:
     build: ./backend
     container_name: isee-backend
     restart: unless-stopped
-    ports:
-      - "8000:8000"
+    # P5 (SEC-13): backend port is NOT exposed to the host in production.
+    # The frontend nginx proxies to backend:8000 via the internal Docker
+    # network (isee-net).  Uncomment for local dev without nginx:
+    # ports:
+    #   - "127.0.0.1:8000:8000"
     environment:
       - APP_NAME=${APP_NAME:-iSee Data Analysis Workbench}
       - DEBUG=${DEBUG:-false}

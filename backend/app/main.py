@@ -15,6 +15,7 @@ from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.db_migrations import ensure_columns
 from app.middleware.proxy_headers import ProxyHeadersMiddleware
+from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.models import data_source as _data_source_module  # noqa: F401
 from app.models import rate_limit as _rate_limit_module  # noqa: F401
 from app.models import report as _report_module  # noqa: F401
@@ -135,14 +136,17 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization", "Cookie"],
 )
 
 # Rewrite request.client from X-Forwarded-For when the immediate peer
 # is a trusted proxy (P3.5 / PY-12). Must run before route handlers
 # so the rate limiter sees the real client IP.
 app.add_middleware(ProxyHeadersMiddleware)
+
+# Attach baseline security headers to every response (P5 / SEC-5).
+app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth.router)
 app.include_router(data_source.router)

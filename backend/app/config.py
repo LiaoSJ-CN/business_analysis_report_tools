@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # Default empty — safe for dev (no proxy) and direct-connect deploys.
     trusted_proxies: list[str] = []
 
+    # --- Security headers (P5 / SEC-5) ---
+    # When True, the SecurityHeadersMiddleware attaches X-Content-Type-Options,
+    # X-Frame-Options, Referrer-Policy, and Permissions-Policy to every response.
+    security_headers_enabled: bool = True
+
     # --- Webhook security (P4) ---
     # Shared secret for HMAC-SHA256 signing of webhook payloads.
     # The receiver validates the X-Webhook-Signature header with the same
