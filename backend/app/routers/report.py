@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path as FilePath
+from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from fastapi.responses import FileResponse, HTMLResponse
@@ -41,7 +42,7 @@ router = APIRouter(
 )
 def create_report_item(
     report_id: int, payload: ReportItemCreate, db: Session = Depends(get_db)
-):
+) -> ReportItem:
     """Add a new item to a report."""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
@@ -57,7 +58,7 @@ def create_report_item(
 @router.put("/{report_id}/items/{item_id}", response_model=ReportItemResponse)
 def update_report_item(
     report_id: int, item_id: int, payload: ReportItemUpdate, db: Session = Depends(get_db)
-):
+) -> ReportItem:
     """Update an existing report item."""
     item = db.query(ReportItem).filter(
         ReportItem.id == item_id, ReportItem.report_id == report_id
@@ -75,7 +76,7 @@ def update_report_item(
 
 
 @router.delete("/{report_id}/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_report_item(report_id: int, item_id: int, db: Session = Depends(get_db)):
+def delete_report_item(report_id: int, item_id: int, db: Session = Depends(get_db)) -> None:
     """Delete a report item."""
     item = db.query(ReportItem).filter(
         ReportItem.id == item_id, ReportItem.report_id == report_id
@@ -93,7 +94,7 @@ def reorder_report_items(
     report_id: int,
     payload: ReportItemReorderRequest,
     db: Session = Depends(get_db),
-):
+) -> dict[str, int]:
     """Atomically update ``order_index`` for a report's items.
 
     Used by the drag-reorder UI to replace N parallel PUTs with one
@@ -115,7 +116,7 @@ def reorder_report_items(
 
     index_by_id = {e.item_id: e.order_index for e in payload.items}
     for row in rows:
-        row.order_index = index_by_id[row.id]
+        row.order_index = index_by_id[cast(int, row.id)]
     db.commit()
     return {"updated": len(rows)}
 
@@ -128,7 +129,7 @@ def list_reports(
     is_active: bool | None = Query(default=None),
     data_source_id: int | None = Query(default=None),
     db: Session = Depends(get_db),
-):
+) -> list[Report]:
     """List all reports with optional filtering."""
     query = db.query(Report)
     if is_active is not None:
@@ -139,7 +140,7 @@ def list_reports(
 
 
 @router.post("", response_model=ReportDetailResponse, status_code=status.HTTP_201_CREATED)
-def create_report(payload: ReportCreate, db: Session = Depends(get_db)):
+def create_report(payload: ReportCreate, db: Session = Depends(get_db)) -> Report:
     """Create a new report with optional initial items."""
     # Check if report name already exists
     existing = db.query(Report).filter(Report.name == payload.name).first()
@@ -176,7 +177,7 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/{report_id}", response_model=ReportDetailResponse)
-def get_report(report_id: int, db: Session = Depends(get_db)):
+def get_report(report_id: int, db: Session = Depends(get_db)) -> Report:
     """Get a single report by ID with all items."""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
@@ -185,7 +186,7 @@ def get_report(report_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/{report_id}", response_model=ReportDetailResponse)
-def update_report(report_id: int, payload: ReportUpdate, db: Session = Depends(get_db)):
+def update_report(report_id: int, payload: ReportUpdate, db: Session = Depends(get_db)) -> Report:
     """Update an existing report."""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
@@ -211,7 +212,7 @@ def update_report(report_id: int, payload: ReportUpdate, db: Session = Depends(g
 
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_report(report_id: int, db: Session = Depends(get_db)):
+def delete_report(report_id: int, db: Session = Depends(get_db)) -> None:
     """Delete a report and all its items."""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:
@@ -226,7 +227,9 @@ def delete_report(report_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/generate", response_model=ReportGenerateResponse)
-def generate_report_endpoint(request: ReportGenerateRequest, db: Session = Depends(get_db)):
+def generate_report_endpoint(
+    request: ReportGenerateRequest, db: Session = Depends(get_db)
+) -> ReportGenerateResponse:
     """Generate a report and return the output file or preview data."""
     report = db.query(Report).filter(Report.id == request.report_id).first()
     if not report:
@@ -244,8 +247,8 @@ def generate_report_endpoint(request: ReportGenerateRequest, db: Session = Depen
         item_errors = result.pop("errors", {})
         return ReportGenerateResponse(
             success=True,
-            report_id=report.id,
-            report_name=report.name,
+            report_id=cast(int, report.id),
+            report_name=cast(str, report.name),
             output_format=request.output_format,
             item_errors=item_errors,
             **result,
@@ -263,7 +266,7 @@ def preview_report(
     request: Request,
     format: str = Query(default="html", pattern="^html$"),
     db: Session = Depends(get_db),
-):
+) -> HTMLResponse:
     """Preview a report without generating a file. Returns raw HTML so the
     frontend iframe can load it directly via <iframe src=...> and scripts
     (Chart.js) execute without being stripped by DOMPurify."""
@@ -293,7 +296,7 @@ def export_report(
     report_id: int,
     format: str = Path(..., pattern="^(excel|html)$"),
     db: Session = Depends(get_db),
-):
+) -> FileResponse:
     """Export a generated report file."""
     report = db.query(Report).filter(Report.id == report_id).first()
     if not report:

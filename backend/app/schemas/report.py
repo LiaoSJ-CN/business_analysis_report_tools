@@ -55,7 +55,7 @@ class WhereCondition(BaseModel):
 
     field: str = Field(..., description="Field name to filter on")
     operator: OperatorType = Field(default=OperatorType.EQ)
-    value: str | int | float | list | None = Field(default=None, description="Filter value")
+    value: str | int | float | list[Any] | None = Field(default=None, description="Filter value")
 
 
 class OrderByItem(BaseModel):

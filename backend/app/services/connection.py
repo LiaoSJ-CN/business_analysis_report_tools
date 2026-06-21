@@ -23,7 +23,7 @@ SUPPORTED_DRIVERS = {
 
 def build_connection_url(source: DataSource) -> str:
     """Build a SQLAlchemy connection URL from a DataSource record."""
-    driver = SUPPORTED_DRIVERS.get(source.db_type)
+    driver = SUPPORTED_DRIVERS.get(str(source.db_type))
     if driver is None:
         raise ConnectionError(f"Unsupported database type: {source.db_type}")
 
@@ -37,7 +37,7 @@ def build_connection_url(source: DataSource) -> str:
     return url
 
 
-def test_connection(source: DataSource) -> dict:
+def test_connection(source: DataSource) -> dict[str, str | bool]:
     """Attempt to connect to the data source and return server version info."""
     url = build_connection_url(source)
     try:
@@ -45,12 +45,12 @@ def test_connection(source: DataSource) -> dict:
             engine = create_engine(url)
             with engine.connect() as conn:
                 result = conn.execute(text("SELECT sqlite_version()"))
-                version = f"SQLite {result.scalar()}"
+                version: str = f"SQLite {result.scalar()}"
         else:
             engine = create_engine(url, connect_args={"connect_timeout": 10})
             with engine.connect() as conn:
                 result = conn.execute(text("SELECT version()"))
-                version = result.scalar()
+                version = str(result.scalar())
         engine.dispose()
         return {"success": True, "version": version}
     except SQLAlchemyError as exc:

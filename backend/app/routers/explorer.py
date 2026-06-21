@@ -1,6 +1,7 @@
 """API routes for data exploration (SQL query execution)."""
 
 import logging
+from typing import Any, cast
 
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -36,7 +37,7 @@ class QueryResponse(BaseModel):
 
     success: bool
     columns: list[str]
-    rows: list[dict]
+    rows: list[dict[str, Any]]
     row_count: int
     error: str | None = None
 
@@ -78,9 +79,9 @@ def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> Query
 
         # Convert types for JSON serialization
         import numpy as np
-        cleaned_rows = []
-        for row in rows:
-            cleaned_row = {}
+        cleaned_rows: list[dict[str, Any]] = []
+        for row in cast(list[dict[str, Any]], rows):
+            cleaned_row: dict[str, Any] = {}
             for k, v in row.items():
                 if pd.isna(v) or v is None:
                     cleaned_row[k] = None
@@ -105,8 +106,11 @@ def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> Query
             row_count=0,
             error=f"Connection error: {exc}",
         )
-    except Exception as exc:
-        logger.exception("Unexpected error during query execution for data source %s", request.data_source_id)
+    except Exception:
+        logger.exception(
+            "Unexpected error during query execution for data source %s",
+            request.data_source_id,
+        )
         return QueryResponse(
             success=False,
             columns=[],

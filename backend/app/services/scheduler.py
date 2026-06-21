@@ -2,7 +2,7 @@
 
 import logging
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class ReportScheduler:
     """Manages scheduled report generation tasks."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the scheduler."""
         self.scheduler = BackgroundScheduler()
         self._is_running = False
@@ -103,9 +103,10 @@ class ReportScheduler:
         if not job:
             return None
 
+        next_run = getattr(job, "next_run_time", None)
         return {
             "job_id": job.id,
-            "next_run": next_run.isoformat() if (next_run := getattr(job, "next_run_time", None)) else None,
+            "next_run": next_run.isoformat() if next_run else None,
             "trigger": str(job.trigger),
         }
 
@@ -146,8 +147,8 @@ class ReportScheduler:
         for report in reports:
             try:
                 self.add_report_job(
-                    report_id=report.id,
-                    cron_expression=report.cron_expression,
+                    report_id=cast(int, report.id),
+                    cron_expression=cast(str, report.cron_expression),
                     notification_config=report.notification_config or {},
                 )
             except Exception as exc:

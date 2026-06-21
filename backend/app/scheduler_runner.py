@@ -18,6 +18,7 @@ interval. SIGTERM / SIGINT trigger a graceful shutdown.
 import logging
 import signal
 import threading
+from types import FrameType
 
 from app.config import settings
 from app.database import SessionLocal
@@ -67,7 +68,7 @@ def main() -> None:
 
     stop = threading.Event()
 
-    def _on_signal(signum: int, _frame) -> None:
+    def _on_signal(signum: int, _frame: FrameType | None) -> None:
         logger.info("Received signal %s, shutting down", signum)
         stop.set()
 

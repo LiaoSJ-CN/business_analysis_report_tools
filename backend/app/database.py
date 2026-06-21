@@ -1,16 +1,17 @@
 """Database setup for application metadata."""
 
 import logging
+from collections.abc import Iterator
 
 from sqlalchemy import create_engine, event
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from app.config import settings
 
 logger = logging.getLogger(__name__)
 
-_connect_args: dict = {}
-_engine_kwargs: dict = {}
+_connect_args: dict[str, object] = {}
+_engine_kwargs: dict[str, int | bool] = {}
 
 if settings.database_url.startswith("sqlite"):
     _connect_args["check_same_thread"] = False
@@ -44,7 +45,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
-def get_db():
+def get_db() -> Iterator[Session]:
     """Yield a database session for dependency injection."""
     db = SessionLocal()
     try:

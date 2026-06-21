@@ -1,10 +1,15 @@
 """SQLAlchemy models for iSee reports."""
 
+from typing import TYPE_CHECKING
+
 from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Mapped, relationship
 from sqlalchemy.sql import func
 
 from app.database import Base
+
+if TYPE_CHECKING:
+    from app.models.data_source import DataSource
 
 
 class Report(Base):
@@ -36,8 +41,8 @@ class Report(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    data_source = relationship("DataSource", backref="reports")
-    items = relationship(
+    data_source: Mapped["DataSource"] = relationship("DataSource", backref="reports")
+    items: Mapped[list["ReportItem"]] = relationship(
         "ReportItem",
         back_populates="report",
         cascade="all, delete-orphan",
@@ -91,7 +96,7 @@ class ReportItem(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
     # Relationships
-    report = relationship("Report", back_populates="items")
+    report: Mapped["Report"] = relationship("Report", back_populates="items")
 
     def __repr__(self) -> str:
         return f"<ReportItem(id={self.id}, name='{self.name}', type='{self.item_type}')>"

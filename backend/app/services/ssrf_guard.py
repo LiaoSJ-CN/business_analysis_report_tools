@@ -86,7 +86,7 @@ def validate_webhook_url(url: str) -> None:
         ) from exc
 
     for info in infos:
-        addr = info[4][0]
+        addr = str(info[4][0])
         if _ip_is_blocked(addr):
             raise SSRFBlocked(
                 f"hostname {hostname!r} resolves to blocked address {addr}"

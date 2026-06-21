@@ -7,8 +7,7 @@ import re
 import threading
 from datetime import datetime
 from html import escape as h
-from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pandas as pd
 from sqlalchemy import create_engine, text
@@ -57,11 +56,11 @@ def _get_or_create_engine(data_source: DataSource) -> Engine:
     on remote backends makes SQLAlchemy discard stale pooled connections
     (e.g. after the remote DB restarts) instead of failing the next query.
     """
-    cached = _engine_cache.get(data_source.id)
+    cached = _engine_cache.get(cast(int, data_source.id))
     if cached is not None:
         return cached
     with _engine_cache_lock:
-        cached = _engine_cache.get(data_source.id)
+        cached = _engine_cache.get(cast(int, data_source.id))
         if cached is not None:
             return cached
         url = build_connection_url(data_source)
@@ -73,7 +72,7 @@ def _get_or_create_engine(data_source: DataSource) -> Engine:
                 connect_args={"connect_timeout": 30},
                 pool_pre_ping=True,
             )
-        _engine_cache[data_source.id] = engine
+        _engine_cache[cast(int, data_source.id)] = engine
         return engine
 
 
@@ -108,12 +107,12 @@ class ReportGenerator:
         """Initialize the generator with a data source."""
         self.data_source = data_source
 
-    def __enter__(self):
+    def __enter__(self) -> "ReportGenerator":
         """Get (or create) cached database engine for the data source."""
         self.engine = _get_or_create_engine(self.data_source)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Intentionally do not dispose — engine is cached for reuse.
 
         Connections stay in the pool for the next caller that hits the
@@ -187,7 +186,7 @@ class ReportGenerator:
                     value = parameters.get(value[1:-1], value)
 
                 fragment, param_index = build_safe_where_clause(
-                    field, operator, value, params, param_index=param_index
+                    str(field), str(operator), value, params, param_index=param_index
                 )
                 where_parts.append(fragment)
 
@@ -211,7 +210,7 @@ class ReportGenerator:
                 direction = (
                     ob.get("direction", "ASC") if isinstance(ob, dict) else ob.direction
                 )
-                if not is_safe_qualified_identifier(field):
+                if not is_safe_qualified_identifier(str(field)):
                     raise ReportGeneratorError(
                         f"Invalid field name in ORDER BY: {field}"
                     )
@@ -285,7 +284,7 @@ class ReportGenerator:
         if base_url:
             html_parts.append(f"<base href='{h(base_url)}'>")
         html_parts.extend([
-            f"<title>{h(report.name)}</title>",
+            f"<title>{h(str(report.name))}</title>",
             "<script src='/static/chart.umd.min.js'></script>",
             "<style>",
             "body { font-family: -apple-system, BlinkMacSystemFont, "
@@ -313,7 +312,7 @@ class ReportGenerator:
             "</style>",
             "</head>",
             "<body>",
-            f"<h1>{h(report.name)}</h1>",
+            f"<h1>{h(str(report.name))}</h1>",
         ])
 
         if report.description:
@@ -327,16 +326,16 @@ class ReportGenerator:
             # If this item failed upstream, surface the error visibly instead
             # of rendering a blank card. html.escape the message because it
             # originates from a DB driver string.
-            if item.name in errors:
-                title = config.get("title") or item.name
+            if cast(str, item.name) in errors:
+                title = config.get("title") or cast(str, item.name)
                 html_parts.append(
                     "<div class='item-error'>"
-                    f"<h2>{h(title)}</h2>"
-                    f"<p class='error-banner'>⚠ {h(errors[item.name])}</p>"
+                    f"<h2>{h(str(title))}</h2>"
+                    f"<p class='error-banner'>⚠ {h(str(errors[cast(str, item.name)]))}</p>"
                     "</div>"
                 )
                 continue
-            item_data = data.get(item.name)
+            item_data = data.get(cast(str, item.name))
 
             if item.item_type == "metric" and item_data is not None and not item_data.empty:
                 # Render as metric cards
@@ -352,7 +351,7 @@ class ReportGenerator:
 
             elif item.item_type == "chart" and item_data is not None and not item_data.empty:
                 chart_index += 1
-                title = config.get("title") or item.name
+                title = config.get("title") or cast(str, item.name)
                 subtitle = config.get("subtitle", "")
                 chart_type = config.get("chart_type") or "bar"
                 show_legend = config.get("show_legend", True)
@@ -364,9 +363,9 @@ class ReportGenerator:
                 height = config.get("height", 400)
 
                 html_parts.append("<div class='chart-container'>")
-                html_parts.append(f"<h2>{h(title)}</h2>")
+                html_parts.append(f"<h2>{h(str(title))}</h2>")
                 if subtitle:
-                    html_parts.append(f"<h3>{h(subtitle)}</h3>")
+                    html_parts.append(f"<h3>{h(str(subtitle))}</h3>")
 
                 # Prepare chart data
                 labels = item_data.iloc[:, 0].tolist() if len(item_data.columns) > 0 else []
@@ -461,8 +460,8 @@ class ReportGenerator:
                 html_parts.append("</script>")
 
             elif item.item_type == "table" and item_data is not None:
-                title = config.get("title") or item.name
-                html_parts.append(f"<h2>{h(title)}</h2>")
+                title = config.get("title") or cast(str, item.name)
+                html_parts.append(f"<h2>{h(str(title))}</h2>")
                 html_parts.append(self._df_to_html_table(item_data))
 
             elif item.item_type == "text":
@@ -554,19 +553,19 @@ def generate_report(
         for item in report.items:
             if item.item_type == "text":
                 # Text items don't need data
-                results[item.name] = pd.DataFrame()
+                results[cast(str, item.name)] = pd.DataFrame()
                 continue
 
             query, params = generator.build_query(item, parameters)
             try:
                 df = generator.execute_query(query, params)
-                results[item.name] = df
+                results[cast(str, item.name)] = df
             except ReportGeneratorError as exc:
                 # Record the error so the renderer / API can surface it.
                 # Empty DataFrame keeps the rest of the pipeline (HTML
                 # layout, Excel sheets) running for the other items.
-                errors[item.name] = str(exc)
-                results[item.name] = pd.DataFrame()
+                errors[cast(str, item.name)] = str(exc)
+                results[cast(str, item.name)] = pd.DataFrame()
 
         if preview_only or output_format == "html":
             html_content = generator.render_html(
@@ -577,7 +576,7 @@ def generate_report(
             else:
                 # Save HTML file
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = output_dir / f"{_safe_filename(report.name)}_{timestamp}.html"
+                filename = output_dir / f"{_safe_filename(str(report.name))}_{timestamp}.html"
                 try:
                     filename.write_text(html_content, encoding="utf-8")
                 except OSError as exc:
@@ -587,7 +586,7 @@ def generate_report(
         elif output_format == "excel":
             # Create Excel file with multiple sheets
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = output_dir / f"{_safe_filename(report.name)}_{timestamp}.xlsx"
+            filename = output_dir / f"{_safe_filename(str(report.name))}_{timestamp}.xlsx"
 
             try:
                 with pd.ExcelWriter(filename, engine="openpyxl") as writer:

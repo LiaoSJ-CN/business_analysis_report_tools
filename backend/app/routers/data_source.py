@@ -19,13 +19,15 @@ router = APIRouter(
 
 
 @router.get("", response_model=list[DataSourceResponse])
-def list_data_sources(db: Session = Depends(get_db)):
+def list_data_sources(db: Session = Depends(get_db)) -> list[DataSource]:
     """List all configured data sources."""
     return db.query(DataSource).all()
 
 
 @router.post("", response_model=DataSourceResponse, status_code=status.HTTP_201_CREATED)
-def create_data_source(payload: DataSourceCreate, db: Session = Depends(get_db)):
+def create_data_source(
+    payload: DataSourceCreate, db: Session = Depends(get_db)
+) -> DataSource:
     """Create a new data source."""
     existing = db.query(DataSource).filter(DataSource.name == payload.name).first()
     if existing:
@@ -45,7 +47,7 @@ def create_data_source(payload: DataSourceCreate, db: Session = Depends(get_db))
 
 
 @router.get("/{source_id}", response_model=DataSourceResponse)
-def get_data_source(source_id: int, db: Session = Depends(get_db)):
+def get_data_source(source_id: int, db: Session = Depends(get_db)) -> DataSource:
     """Get a single data source by ID."""
     source = db.query(DataSource).filter(DataSource.id == source_id).first()
     if not source:
@@ -56,7 +58,7 @@ def get_data_source(source_id: int, db: Session = Depends(get_db)):
 @router.put("/{source_id}", response_model=DataSourceResponse)
 def update_data_source(
     source_id: int, payload: DataSourceUpdate, db: Session = Depends(get_db)
-):
+) -> DataSource:
     """Update an existing data source."""
     source = db.query(DataSource).filter(DataSource.id == source_id).first()
     if not source:
@@ -77,7 +79,7 @@ def update_data_source(
 
 
 @router.delete("/{source_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_data_source(source_id: int, db: Session = Depends(get_db)):
+def delete_data_source(source_id: int, db: Session = Depends(get_db)) -> None:
     """Delete a data source."""
     source = db.query(DataSource).filter(DataSource.id == source_id).first()
     if not source:
@@ -90,7 +92,7 @@ def delete_data_source(source_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/{source_id}/test", response_model=dict)
-def test_data_source(source_id: int, db: Session = Depends(get_db)):
+def test_data_source(source_id: int, db: Session = Depends(get_db)) -> dict[str, str | bool]:
     """Test connectivity to a data source."""
     source = db.query(DataSource).filter(DataSource.id == source_id).first()
     if not source:

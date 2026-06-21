@@ -5,7 +5,7 @@ and refresh tokens can't be used interchangeably.
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Literal
+from typing import Any, Literal
 
 import jwt
 
@@ -39,7 +39,7 @@ def create_refresh_token(subject: str) -> str:
     return _encode(subject, "refresh", timedelta(days=settings.refresh_token_days))
 
 
-def decode_token(token: str, expected_type: TokenType = "access") -> dict | None:
+def decode_token(token: str, expected_type: TokenType = "access") -> dict[str, Any] | None:
     """Decode and validate a JWT. Returns the payload or ``None`` on any
     failure (bad signature, expired, wrong type, malformed)."""
     try:

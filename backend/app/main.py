@@ -2,6 +2,7 @@
 
 import logging
 import logging.handlers
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -60,7 +61,7 @@ ensure_columns(engine)
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager."""
     if settings.scheduler_disabled:
         logger.info(

@@ -87,12 +87,12 @@ def refresh(req: RefreshRequest) -> AccessOnly:
 
 
 @router.post("/logout")
-def logout() -> dict:
+def logout() -> dict[str, bool]:
     """Stateless JWT — clients just discard the tokens."""
     return {"ok": True}
 
 
 @router.get("/me")
-def me(user: str = Depends(get_current_user)) -> dict:
+def me(user: str = Depends(get_current_user)) -> dict[str, str]:
     """Return the currently logged-in user."""
     return {"username": user}

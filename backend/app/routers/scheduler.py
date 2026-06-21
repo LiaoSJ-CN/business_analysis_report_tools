@@ -44,13 +44,13 @@ class SchedulerStatusResponse(BaseModel):
 
 
 @router.get("/status", response_model=SchedulerStatusResponse)
-def get_scheduler_status():
+def get_scheduler_status() -> SchedulerStatusResponse:
     """Get the current status of the scheduler."""
-    return get_scheduler().get_status()
+    return SchedulerStatusResponse(**get_scheduler().get_status())
 
 
 @router.post("/sync", response_model=SchedulerSyncResponse)
-def sync_scheduler(db: Session = Depends(get_db)):
+def sync_scheduler(db: Session = Depends(get_db)) -> SchedulerSyncResponse:
     """Reconcile scheduler with the database — adds jobs for active scheduled
     reports and drops jobs whose DB row no longer qualifies (paused, deleted,
     missing). Delegates to `sync_with_database` so the HTTP path stays in
@@ -74,7 +74,7 @@ def sync_scheduler(db: Session = Depends(get_db)):
 
 
 @router.get("/jobs/{report_id}", response_model=SchedulerJobResponse)
-def get_job_status(report_id: int):
+def get_job_status(report_id: int) -> SchedulerJobResponse:
     """Get the status of a scheduled job for a specific report."""
     scheduler = get_scheduler()
     status_info = scheduler.get_job_status(report_id)
@@ -93,7 +93,7 @@ def create_or_update_job(
     report_id: int,
     payload: ScheduleTaskCreate,
     db: Session = Depends(get_db),
-):
+) -> SchedulerJobResponse:
     """Create or update a scheduled job for a report."""
     if payload.report_id != report_id:
         raise HTTPException(
@@ -122,7 +122,7 @@ def create_or_update_job(
         scheduler.add_report_job(
             report_id=report_id,
             cron_expression=payload.cron_expression,
-            notification_config=notification_config,
+            notification_config=notification_config or {},
         )
     except ValueError as exc:
         raise HTTPException(
@@ -130,11 +130,17 @@ def create_or_update_job(
             detail=str(exc),
         ) from exc
 
-    return SchedulerJobResponse(**scheduler.get_job_status(report_id))
+    job_status = scheduler.get_job_status(report_id)
+    if not job_status:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No scheduled job found for report {report_id}",
+        )
+    return SchedulerJobResponse(**job_status)
 
 
 @router.delete("/jobs/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_job(report_id: int, db: Session = Depends(get_db)):
+def delete_job(report_id: int, db: Session = Depends(get_db)) -> None:
     """Delete a scheduled job for a report."""
     # Update report's schedule configuration
     report_obj = db.query(Report).filter(Report.id == report_id).first()
