@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Card, Table, Button, Space, Tag, Modal, Form, Input, Select, message, Popconfirm, Alert } from 'antd';
-import { SyncOutlined, PlusOutlined, DeleteOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { SyncOutlined, PlusOutlined, DeleteOutlined, ClockCircleOutlined, PauseCircleOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import type { ColumnsType } from 'antd/es/table';
 import type { Report, SchedulerStatus, SchedulerJob } from '../types';
 import { reportApi, schedulerApi } from '../api';
