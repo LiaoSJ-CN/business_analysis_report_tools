@@ -19,9 +19,9 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.models.data_source import DataSource
 from app.models.report import Report, ReportItem
+from app.services.connection import build_connection_url
 
 logger = logging.getLogger(__name__)
-from app.services.connection import build_connection_url
 
 
 class ReportGeneratorError(Exception):
