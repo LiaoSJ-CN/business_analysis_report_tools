@@ -656,7 +656,7 @@ export default function DataExplorer() {
 
       {result && (
         <Card title={result.success ? '查询结果 (' + result.row_count + ' 条)' : '查询错误'}>
-          {result.success && result.error && (
+          {!result.success && result.error && (
             <Alert
               type="error"
               message="SQL 执行错误"
