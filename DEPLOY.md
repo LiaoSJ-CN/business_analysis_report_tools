@@ -124,19 +124,19 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # 后端 API
-    location /api {
-        proxy_pass http://127.0.0.1:8000;
+    # 后端 API — trailing slash strips the /api prefix before forwarding
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000/;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # WebSocket 支持（如果需要）
-    location /ws {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
+    # 后端静态文件（Chart.js 等）
+    location /static/ {
+        proxy_pass http://127.0.0.1:8000/static/;
+        proxy_set_header Host $host;
     }
 }
 ```
@@ -145,47 +145,63 @@ server {
 
 ### 方式三：Docker 部署
 
-#### Dockerfile (后端)
+项目已包含完整的 Docker 配置文件，开箱即用。
 
-```dockerfile
-FROM python:3.11-slim
+#### 文件说明
 
-WORKDIR /app
+| 文件 | 用途 |
+|------|------|
+| `backend/Dockerfile` | Python 3.11 后端镜像 |
+| `backend/.dockerignore` | 排除 venv、测试等无关文件 |
+| `frontend/Dockerfile` | 多阶段构建：Node 编译 + Nginx 服务 |
+| `frontend/.dockerignore` | 排除 node_modules、dist |
+| `frontend/nginx.conf` | Nginx 配置（SPA fallback + API 代理） |
+| `docker-compose.yml` | 编排 backend + frontend + 可选 scheduler/postgres |
 
-COPY backend/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+#### 架构
 
-COPY backend/ .
-
-EXPOSE 8000
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+浏览器 :8080 → frontend (nginx:80)
+                  ├── /            → 前端静态文件 (React SPA)
+                  ├── /api/*       → 剥离前缀后 proxy_pass → backend:8000/*
+                  └── /static/*    → proxy_pass → backend:8000/static/*
 ```
 
-#### docker-compose.yml
+#### 启动
 
-```yaml
-version: '3.8'
+```bash
+# 1. 配置环境变量（参考 backend/.env.example）
+cp backend/.env.example backend/.env
+# 编辑 backend/.env，至少设置 JWT_SECRET_KEY 和 ENCRYPTION_KEY
+vi backend/.env
 
-services:
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile.backend
-    ports:
-      - "8000:8000"
-    volumes:
-      - ./backend/generated_reports:/app/generated_reports
-    environment:
-      - DATABASE_URL=sqlite:///./app.db
+# 2. 构建并启动
+docker compose up -d
 
-  frontend:
-    image: nginx:alpine
-    ports:
-      - "80:80"
-    volumes:
-      - ./frontend/dist:/usr/share/nginx/html
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+# 3. 访问
+# http://localhost:8080
+
+# 查看日志
+docker compose logs -f
+
+# 停止
+docker compose down
+```
+
+#### 启动调度器（可选）
+
+默认 web 进程不运行定时任务。如有报表需定时生成，启动 scheduler sidecar：
+
+```bash
+docker compose --profile scheduler up -d
+```
+
+#### 使用 PostgreSQL（可选）
+
+编辑 `backend/.env`，设置 `DATABASE_URL` 为 PostgreSQL 连接串，然后取消 `docker-compose.yml` 中 `db` 服务的注释：
+
+```bash
+docker compose --profile postgres up -d
 ```
 
 ---
@@ -199,13 +215,20 @@ services:
 | `APP_NAME` | iSee Data Analysis Workbench | 应用名称 |
 | `DEBUG` | false | 调试模式 |
 | `DATABASE_URL` | sqlite:///./app.db | 数据库连接 URL |
-| `CORS_ORIGINS` | http://localhost:5173 | 允许的跨域来源（JSON 数组字符串） |
-| `ADMIN_USERNAME` | `admin` | 单管理员用户名 |
-| `ADMIN_PASSWORD` | `admin` | 单管理员密码（明文，**仅 demo 用**） |
-| `JWT_SECRET_KEY` | （未设则随机生成 + 警告） | JWT HS256 签名密钥；**生产必须显式设置** |
+| `CORS_ORIGINS` | `["http://localhost:5173","http://127.0.0.1:5173"]` | 允许的跨域来源（JSON 数组字符串） |
+| `ADMIN_USERNAME` | `admin` | 管理员用户名 |
+| `ADMIN_PASSWORD` | `admin` | 管理员密码（**生产必改**） |
+| `JWT_SECRET_KEY` | （未设则随机生成 + 警告） | JWT HS256 签名密钥；**生产必须显式设置，否则重启 token 全失效** |
 | `JWT_ALGORITHM` | `HS256` | JWT 签名算法 |
 | `ACCESS_TOKEN_MINUTES` | `1440` (1 天) | Access token 有效期 |
 | `REFRESH_TOKEN_DAYS` | `7` | Refresh token 有效期 |
+| `ENCRYPTION_KEY` | （未设则随机生成 + 警告） | 数据源密码加密密钥（Fernet）；**生产必须显式设置** |
+| `LOGIN_RATE_LIMIT` | `10` | 每 IP 每分钟最大登录尝试次数 |
+| `LOG_LEVEL` | `INFO` | 日志级别（DEBUG/INFO/WARNING/ERROR） |
+| `DB_POOL_SIZE` | `5` | 数据库连接池大小（仅 PostgreSQL） |
+| `DB_MAX_OVERFLOW` | `10` | 连接池溢出上限（仅 PostgreSQL） |
+| `SCHEDULER_DISABLED` | `true` | web 进程跳过调度器（sidecar 模式） |
+| `SCHEDULER_RESYNC_INTERVAL` | `30` | sidecar 从 DB 重读调度的间隔（秒） |
 
 示例 `.env` 文件：
 
@@ -216,7 +239,10 @@ DATABASE_URL=sqlite:///./app.db
 CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=change-me-in-production
-JWT_SECRET_KEY=your-very-long-random-secret-here
+JWT_SECRET_KEY=<生成一个长随机串>
+ENCRYPTION_KEY=<生成一个 Fernet key>
+SCHEDULER_DISABLED=true
+LOG_LEVEL=INFO
 ```
 
 ---
@@ -295,9 +321,11 @@ kill -9 <PID>
 ## 生产环境检查清单
 
 - [ ] 设置 `JWT_SECRET_KEY` 为随机长字符串（至少 32 字节）
+- [ ] 设置 `ENCRYPTION_KEY` 为 Fernet 密钥
 - [ ] 修改默认 `ADMIN_PASSWORD`
-- [ ] 启用 HTTPS（若用 cookie 类方案）
+- [ ] 调整 `LOGIN_RATE_LIMIT`（默认 10 次/分钟）
+- [ ] 启用 HTTPS
 - [ ] 配置防火墙规则
 - [ ] 设置日志轮转
-- [ ] 配置备份策略
+- [ ] 配置数据库备份策略
 - [ ] 监控服务状态

@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# Git
+.git/
+.gitignore
+
+# App data (mounted as volumes)
+app.db
+generated_reports/
+logs/
+
+# Environment (set via docker-compose, not baked into image)
+.env
+.env.*
+
+# Tests
+tests/

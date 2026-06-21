@@ -13,7 +13,9 @@ import type {
   SchedulerJob,
 } from '../types';
 
-export const API_BASE = 'http://localhost:8000';
+// VITE_API_BASE_URL can be set at build time for production deployments.
+// Defaults to '/api' which works with the Vite dev proxy and nginx reverse proxy.
+export const API_BASE = import.meta.env.VITE_API_BASE_URL || '/api';
 const ACCESS_KEY = 'access_token';
 const REFRESH_KEY = 'refresh_token';
 

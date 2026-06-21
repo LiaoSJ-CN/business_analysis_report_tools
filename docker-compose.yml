@@ -1,0 +1,87 @@
+services:
+  backend:
+    build: ./backend
+    container_name: isee-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=${APP_NAME:-iSee Data Analysis Workbench}
+      - DEBUG=${DEBUG:-false}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./app.db}
+      - CORS_ORIGINS=${CORS_ORIGINS:-["http://localhost:8080","http://127.0.0.1:8080"]}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-changeme}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - LOGIN_RATE_LIMIT=${LOGIN_RATE_LIMIT:-10}
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-5}
+      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-10}
+      - SCHEDULER_DISABLED=${SCHEDULER_DISABLED:-true}
+      - SCHEDULER_RESYNC_INTERVAL=${SCHEDULER_RESYNC_INTERVAL:-30}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - isee-data:/app
+    networks:
+      - isee-net
+
+  frontend:
+    build: ./frontend
+    container_name: isee-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      - backend
+    networks:
+      - isee-net
+
+  # Sidecar process for scheduled report generation.
+  # Only needed if SCHEDULER_DISABLED=true (the default) and you have
+  # reports with active schedules.
+  scheduler:
+    build: ./backend
+    container_name: isee-scheduler
+    restart: unless-stopped
+    command: python -m app.scheduler_runner
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///./app.db}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - DB_POOL_SIZE=${DB_POOL_SIZE:-5}
+      - DB_MAX_OVERFLOW=${DB_MAX_OVERFLOW:-10}
+      - SCHEDULER_RESYNC_INTERVAL=${SCHEDULER_RESYNC_INTERVAL:-30}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    volumes:
+      - isee-data:/app
+    networks:
+      - isee-net
+    profiles:
+      - scheduler
+
+  # Optional: Use PostgreSQL for the metadata database instead of SQLite.
+  # Uncomment and set DATABASE_URL=postgresql://isee:changeme@db:5432/isee
+  # db:
+  #   image: postgres:16-alpine
+  #   container_name: isee-db
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_USER: isee
+  #     POSTGRES_PASSWORD: changeme
+  #     POSTGRES_DB: isee
+  #   volumes:
+  #     - pgdata:/var/lib/postgresql/data
+  #   networks:
+  #     - isee-net
+  #   profiles:
+  #     - postgres
+
+volumes:
+  isee-data:
+
+  # Uncomment if using PostgreSQL
+  # pgdata:
+
+networks:
+  isee-net:
+    driver: bridge
