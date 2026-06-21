@@ -12,7 +12,7 @@ class Settings(BaseSettings):
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    app_name: str = "Business Analysis Report Backend"
+    app_name: str = "iSee Data Analysis Workbench"
     debug: bool = False
     database_url: str = f"sqlite:///{Path(__file__).parent.parent / 'app.db'}"
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]

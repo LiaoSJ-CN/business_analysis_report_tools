@@ -1,9 +1,9 @@
-# 经营分析报表系统 - 部署指南
+# iSee数据分析工作台 - 部署指南
 
 ## 项目结构
 
 ```
-business_analysis_report_tools/
+isee-workbench/
 ├── backend/                 # FastAPI 后端
 │   ├── app/
 │   │   ├── main.py        # 应用入口
@@ -87,7 +87,7 @@ npm run dev
 #### 1. 克隆并构建前端
 
 ```bash
-cd business_analysis_report_tools/frontend
+cd isee-workbench/frontend
 npm install
 npm run build
 ```
@@ -120,7 +120,7 @@ server {
 
     # 前端静态文件
     location / {
-        root /path/to/business_analysis_report_tools/frontend/dist;
+        root /path/to/isee-workbench/frontend/dist;
         try_files $uri $uri/ /index.html;
     }
 
@@ -196,7 +196,7 @@ services:
 
 | 变量名 | 默认值 | 说明 |
 |--------|--------|------|
-| `APP_NAME` | Business Analysis Report Backend | 应用名称 |
+| `APP_NAME` | iSee Data Analysis Workbench | 应用名称 |
 | `DEBUG` | false | 调试模式 |
 | `DATABASE_URL` | sqlite:///./app.db | 数据库连接 URL |
 | `CORS_ORIGINS` | http://localhost:5173 | 允许的跨域来源（JSON 数组字符串） |
@@ -210,7 +210,7 @@ services:
 示例 `.env` 文件：
 
 ```env
-APP_NAME=经营分析报表系统
+APP_NAME=iSee数据分析工作台
 DEBUG=false
 DATABASE_URL=sqlite:///./app.db
 CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]

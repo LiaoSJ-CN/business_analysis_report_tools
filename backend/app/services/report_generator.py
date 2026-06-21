@@ -1,4 +1,4 @@
-"""Service for generating business analysis reports."""
+"""Service for generating iSee reports."""
 
 import json
 import numbers

@@ -1,4 +1,4 @@
-"""SQLAlchemy models for business analysis reports."""
+"""SQLAlchemy models for iSee reports."""
 
 from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship

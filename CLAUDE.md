@@ -47,7 +47,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-数据分析应用iSee — 一个配置化的数据分析应用系统。支持连接数据库、SQL 数据探索、ELT 数据加工处理，以及通过可视化拖拽编辑器构建报表。
+iSee数据分析工作台 — 支撑数据分析人员连接不同数据源，进行 SQL 数据探索和报表分析。支持可视化拖拽编辑器构建报表，以及定时任务自动生成与通知。
 
 - **后端**: FastAPI + SQLAlchemy + Pydantic，Python ≥ 3.11
 - **前端**: React 19 + TypeScript + Vite + Ant Design + Chart.js + CodeMirror 6
@@ -199,7 +199,7 @@ mypy app
 
 | 变量名 | 默认值 | 说明 |
 |----------|---------|-------------|
-| `APP_NAME` | `Business Analysis Report Backend` | 应用标题 |
+| `APP_NAME` | `iSee Data Analysis Workbench` | 应用标题 |
 | `DEBUG` | `false` | FastAPI 调试模式 |
 | `DATABASE_URL` | `sqlite:///./app.db` | 元数据库连接 URL |
 | `CORS_ORIGINS` | `http://localhost:5173`, `http://127.0.0.1:5173` | 允许的跨域来源 |
@@ -207,7 +207,7 @@ mypy app
 示例 `backend/.env`：
 
 ```env
-APP_NAME=经营分析报表系统
+APP_NAME=iSee数据分析工作台
 DEBUG=false
 DATABASE_URL=sqlite:///./app.db
 CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173"]

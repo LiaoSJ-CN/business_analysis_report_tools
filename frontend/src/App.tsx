@@ -7,6 +7,7 @@ import {
   ClockCircleOutlined,
   SearchOutlined,
   LogoutOutlined,
+  FundOutlined,
 } from '@ant-design/icons';
 import {
   DataSourceList,
@@ -107,8 +108,9 @@ function AppShell() {
   return (
     <Layout style={{ minHeight: '100vh' }}>
       <Header style={{ display: 'flex', alignItems: 'center' }}>
-        <div style={{ color: 'white', fontSize: 18, fontWeight: 'bold', marginRight: 32 }}>
-          经营分析报表
+        <div style={{ color: 'white', fontSize: 18, fontWeight: 'bold', marginRight: 32, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <FundOutlined />
+          iSee数据分析工作台
         </div>
         <AppMenu />
         <Button

@@ -1,11 +1,11 @@
-# 经营分析报表系统
+# iSee数据分析工作台
 
-配置化生成经营分析报表的系统，支持可视化拖拽配置。
+支撑数据分析人员连接不同数据源，进行 SQL 数据探索与报表分析。支持可视化拖拽配置，定时任务自动生成与通知。
 
 ## 项目结构
 
 ```
-business_analysis_report_tools/
+isee-workbench/
 ├── backend/                 # FastAPI 后端
 │   ├── app/
 │   │   ├── main.py         # 应用入口
