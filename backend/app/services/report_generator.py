@@ -123,11 +123,16 @@ class ReportGenerator:
             Tuple of (query_string, parameters_dict) for safe query execution.
         """
         if item.custom_sql:
-            # Substitute parameters in custom SQL (only for parameter placeholders)
+            # Replace {param_name} placeholders with :param_name bind variables
+            # so user-supplied parameter values are never injected into SQL text.
             sql = item.custom_sql
+            query_params: dict[str, Any] = {}
             for key, value in parameters.items():
-                sql = sql.replace(f"{{{key}}}", str(value))
-            return sql, {}
+                placeholder = f"{{{key}}}"
+                if placeholder in sql:
+                    sql = sql.replace(placeholder, f":{key}")
+                    query_params[key] = value
+            return sql, query_params
 
         # Auto-generate query from configuration
         table_name = item.table_name

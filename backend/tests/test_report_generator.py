@@ -204,13 +204,13 @@ def test_build_query_limit_becomes_param() -> None:
 
 
 def test_build_query_custom_sql_uses_substitution() -> None:
-    """custom_sql bypasses the validator but only for {param} substitution;
-    caller is responsible for safety."""
+    """custom_sql placeholder {param} is replaced with :param bind variable
+    and the value is returned in the params dict for safe parameterized execution."""
     g = _gen()
     item = _item(custom_sql="SELECT * FROM t WHERE id = {uid}")
     sql, params = g.build_query(item, {"uid": 99})
-    assert sql == "SELECT * FROM t WHERE id = 99"
-    assert params == {}
+    assert sql == "SELECT * FROM t WHERE id = :uid"
+    assert params == {"uid": 99}
 
 
 # ---------- render_html (XSS escaping surface) ----------

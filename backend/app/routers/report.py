@@ -1,6 +1,7 @@
 """API routes for report management."""
 
 from datetime import datetime
+from pathlib import Path as FilePath
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, status
 from fastapi.responses import FileResponse, HTMLResponse
@@ -309,7 +310,7 @@ def export_report(
             db=db,
         )
         file_path = result.get("file_path")
-        if not file_path or not Path(file_path).exists():
+        if not file_path or not FilePath(file_path).exists():
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Generated file not found",

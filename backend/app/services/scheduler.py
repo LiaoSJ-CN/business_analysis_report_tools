@@ -194,8 +194,9 @@ def _execute_scheduled_report(report_id: int, notification_config: dict[str, Any
     """
     logger.info(f"Executing scheduled report {report_id}")
 
-    db = SessionLocal()
+    db = None
     try:
+        db = SessionLocal()
         report = db.query(Report).filter(Report.id == report_id).first()
         if not report:
             logger.error(f"Report {report_id} not found")
@@ -235,7 +236,8 @@ def _execute_scheduled_report(report_id: int, notification_config: dict[str, Any
     except Exception as exc:
         logger.error(f"Error executing scheduled report {report_id}: {exc}")
     finally:
-        db.close()
+        if db:
+            db.close()
 
 
 def _send_notification(

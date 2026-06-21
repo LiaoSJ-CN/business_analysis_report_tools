@@ -199,14 +199,16 @@ export default function DataExplorer() {
       message.warning('请输入 SQL');
       return;
     }
-
+    if (loading) return;
     setLoading(true);
     setResult(null);
-    // Snapshot DS name at execute time — survives the source being renamed
-    // or deleted before the user looks back at history.
+    // Snapshot DS name and timestamp at click-submission time so the 5-second
+    // dedup window is measured from when the user triggered execution, not
+    // from when the API response arrives.
     const ds = dataSources.find((d) => d.id === selectedDs);
     const dsName = ds?.name || `ds#${selectedDs}`;
     const sqlSnapshot = sql.trim();
+    const clickedAt = Date.now();
     try {
       const data = await explorerApi.query(selectedDs, sql);
       setResult(data);
@@ -218,7 +220,7 @@ export default function DataExplorer() {
       setHistory((h) =>
         appendHistory(h, {
           id: newHistoryId(),
-          ts: Date.now(),
+          ts: clickedAt,
           ds_id: selectedDs,
           ds_name: dsName,
           sql: sqlSnapshot,
@@ -233,7 +235,7 @@ export default function DataExplorer() {
       setHistory((h) =>
         appendHistory(h, {
           id: newHistoryId(),
-          ts: Date.now(),
+          ts: clickedAt,
           ds_id: selectedDs,
           ds_name: dsName,
           sql: sqlSnapshot,
