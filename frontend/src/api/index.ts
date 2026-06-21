@@ -230,18 +230,50 @@ export const reportApi = {
   // Bearer token. The `/export/{format}` endpoint is JWT-gated — a raw fetch
   // without an Authorization header always gets 401.
   download: async (reportId: number, format: 'excel' | 'html', filename: string): Promise<void> => {
-    const response = await api.get(`/reports/${reportId}/export/${format}`, {
-      responseType: 'blob',
-    });
-    const blob = new Blob([response.data]);
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${filename}.${format}`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
+    try {
+      const response = await api.get(`/reports/${reportId}/export/${format}`, {
+        responseType: 'blob',
+      });
+      const contentType = String(response.headers['content-type'] || '');
+      if (contentType.includes('application/json')) {
+        const text = await response.data.text();
+        let detail = text;
+        try {
+          const parsed = JSON.parse(text);
+          detail = parsed.detail || text;
+        } catch { /* use raw text */ }
+        throw { response: { data: { detail } } };
+      }
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${filename}.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'response' in err &&
+        (err as { response?: { data?: unknown; headers?: Record<string, string> } }).response
+      ) {
+        const axiosErr = err as { response: { data?: unknown; headers?: Record<string, string> } };
+        const ct = String(axiosErr.response.headers?.['content-type'] || '');
+        if (ct.includes('application/json') && axiosErr.response.data instanceof Blob) {
+          const text = await axiosErr.response.data.text();
+          let detail = text;
+          try {
+            const parsed = JSON.parse(text);
+            detail = parsed.detail || text;
+          } catch { /* use raw text */ }
+          throw { response: { data: { detail } } };
+        }
+      }
+      throw err;
+    }
   },
 };
 

@@ -44,6 +44,14 @@ class Settings(BaseSettings):
     # Max login attempts per IP per minute before returning 429.
     login_rate_limit: int = 10
 
+    # --- Trusted proxies (P3.5 / PY-12) ---
+    # IPs or CIDR subnets of reverse proxies that may set X-Forwarded-For.
+    # When the immediate peer is in this list, the rightmost non-trusted
+    # hop in X-Forwarded-For is used as the real client IP (needed for
+    # accurate rate-limit attribution behind nginx / HAProxy).
+    # Default empty — safe for dev (no proxy) and direct-connect deploys.
+    trusted_proxies: list[str] = []
+
     # --- Cookie auth (P3 / SEC-6) ---
     # When True, login/refresh set HttpOnly+SameSite cookies; the
     # ``Authorization: Bearer`` header remains supported as a fallback

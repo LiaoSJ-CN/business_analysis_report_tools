@@ -14,6 +14,7 @@ from sqlalchemy import text
 from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.db_migrations import ensure_columns
+from app.middleware.proxy_headers import ProxyHeadersMiddleware
 from app.models import data_source as _data_source_module  # noqa: F401
 from app.models import rate_limit as _rate_limit_module  # noqa: F401
 from app.models import report as _report_module  # noqa: F401
@@ -137,6 +138,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Rewrite request.client from X-Forwarded-For when the immediate peer
+# is a trusted proxy (P3.5 / PY-12). Must run before route handlers
+# so the rate limiter sees the real client IP.
+app.add_middleware(ProxyHeadersMiddleware)
 
 app.include_router(auth.router)
 app.include_router(data_source.router)
