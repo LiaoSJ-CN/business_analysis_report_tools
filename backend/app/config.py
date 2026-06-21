@@ -44,6 +44,26 @@ class Settings(BaseSettings):
     # Max login attempts per IP per minute before returning 429.
     login_rate_limit: int = 10
 
+    # --- Cookie auth (P3 / SEC-6) ---
+    # When True, login/refresh set HttpOnly+SameSite cookies; the
+    # ``Authorization: Bearer`` header remains supported as a fallback
+    # (CLI / curl). Set False to revert to header-only auth (legacy
+    # clients that can't deal with cookies).
+    cookie_auth_enabled: bool = True
+    # Cookie ``Secure`` flag. MUST be True in production (HTTPS); False
+    # in local dev so the browser accepts the cookie on ``http://localhost``.
+    cookie_secure: bool = False
+    # Cookie ``SameSite`` policy. ``Lax`` blocks cross-site POST (CSRF
+    # defense) while still allowing the cookie to flow on same-site
+    # XHR and top-level GET navigations — matches the Vite/nginx
+    # reverse-proxy topology where the API is on the same origin as
+    # the SPA.
+    cookie_samesite: str = "lax"
+    # Names — keep the defaults; only change if the SPA needs to
+    # distinguish two deployments on the same hostname.
+    access_cookie_name: str = "access_token"
+    refresh_cookie_name: str = "refresh_token"
+
     # --- Database pool ---
     # Only applied when DATABASE_URL is not SQLite; SQLite uses a
     # single-connection NullPool which ignores these.

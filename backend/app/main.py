@@ -15,8 +15,13 @@ from app.config import settings
 from app.database import Base, SessionLocal, engine
 from app.db_migrations import ensure_columns
 from app.models import data_source as _data_source_module  # noqa: F401
+from app.models import rate_limit as _rate_limit_module  # noqa: F401
 from app.models import report as _report_module  # noqa: F401
+from app.models import revoked_token as _revoked_token_module  # noqa: F401
+from app.models import user as _user_module  # noqa: F401
+from app.models.user import User
 from app.routers import auth, data_source, explorer, report, scheduler
+from app.services.password import hash_password
 from app.services.scheduler import get_scheduler
 
 # ---------------------------------------------------------------------------
@@ -60,9 +65,39 @@ ensure_columns(engine)
 # ---------------------------------------------------------------------------
 
 
+def _seed_admin_user() -> None:
+    """Idempotently create the bootstrap admin user from settings.
+
+    P3 (SEC-18): replaces the pre-P3 ``settings.admin_password`` plaintext
+    compare. On first start, the configured password is bcrypt-hashed and
+    stored in ``users``. Subsequent starts are no-ops; rotating the
+    bootstrap password requires either updating the row directly or
+    removing it so this function recreates it.
+    """
+    db = SessionLocal()
+    try:
+        existing = db.query(User).filter(User.username == settings.admin_username).first()
+        if existing is not None:
+            return
+        db.add(
+            User(
+                username=settings.admin_username,
+                password_hash=hash_password(settings.admin_password),
+            )
+        )
+        db.commit()
+        logger.info(
+            "Seeded bootstrap admin user '%s' (id will be assigned)",
+            settings.admin_username,
+        )
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager."""
+    _seed_admin_user()
     if settings.scheduler_disabled:
         logger.info(
             "Scheduler is DISABLED in this process — "

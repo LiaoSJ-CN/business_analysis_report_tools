@@ -1,26 +1,45 @@
 """Authentication endpoints.
 
-Single shared admin user. Password is sourced from ``ADMIN_PASSWORD`` in
-``backend/.env`` (defaults to ``admin`` for local dev). On successful
-login the response carries a short-lived access token (used as
-``Authorization: Bearer <token>`` on every API call) and a longer-lived
-refresh token (used only at ``/auth/refresh``).
+P3 (SEC-18): credentials are looked up against the ``users`` table;
+passwords are stored as bcrypt hashes. The bootstrap admin user is
+seeded from ``ADMIN_USERNAME`` / ``ADMIN_PASSWORD`` in ``backend/.env``
+on first startup. The plaintext env var remains as a one-time bootstrap
+mechanism — it is **not** consulted at login time.
 
-Login is rate-limited per IP via an in-memory sliding window — see
-``app.middleware.rate_limit``.
+P3 (PY-25): every token carries a unique ``jti`` claim. Logout inserts
+that jti into the ``revoked_jti`` deny-list so a stolen token cannot be
+reused after the legitimate user signs out. ``/auth/refresh`` rotates
+refresh tokens — the old refresh jti is revoked and a new pair is
+minted, so refresh tokens are single-use.
+
+P3 (SEC-6): on success, login and refresh set HttpOnly+Secure+SameSite
+cookies for both the access and refresh tokens. The response body
+also carries the tokens (so CLI / curl callers that don't handle
+cookies can still use the response directly). The ``Authorization:
+Bearer`` header is honored as a fallback for non-cookie clients.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Annotated, Any, cast
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.config import settings
-from app.deps import get_current_user
+from app.database import get_db
+from app.deps import get_current_token, get_current_user, get_refresh_token_from_request
 from app.middleware.rate_limit import RateLimiter
+from app.models.user import User
+from app.services.auth_state import is_jti_revoked, revoke_jti
 from app.services.jwt_auth import (
     create_access_token,
     create_refresh_token,
     decode_token,
 )
+from app.services.password import verify_password
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -37,7 +56,11 @@ class LoginRequest(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    """Optional body. With cookies enabled (P3 / SEC-6 default), the
+    refresh token lives in the HttpOnly cookie and no body is needed.
+    Body fallback is kept for CLI / curl."""
+
+    refresh_token: str | None = None
 
 
 class TokenPair(BaseModel):
@@ -46,53 +69,166 @@ class TokenPair(BaseModel):
     token_type: str = "bearer"
 
 
-class AccessOnly(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
+def _client_ip(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _set_auth_cookies(response: Response, access: str, refresh: str) -> None:
+    """Attach HttpOnly+SameSite cookies for both tokens.
+
+    ``Max-Age`` matches the JWT lifetime so the browser discards the
+    cookie at the same time the server-side token would expire. The
+    ``Path`` is ``/`` so the cookie is sent on every API call, not
+    just ``/auth/*`` (which would block ``/explorer`` etc).
+    """
+    if not settings.cookie_auth_enabled:
+        return
+    common: dict[str, Any] = {
+        "httponly": True,
+        "secure": settings.cookie_secure,
+        "samesite": settings.cookie_samesite,
+        "path": "/",
+    }
+    response.set_cookie(
+        key=settings.access_cookie_name,
+        value=access,
+        max_age=settings.access_token_minutes * 60,
+        **common,
+    )
+    response.set_cookie(
+        key=settings.refresh_cookie_name,
+        value=refresh,
+        max_age=settings.refresh_token_days * 86400,
+        **common,
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    common: dict[str, Any] = {
+        "secure": settings.cookie_secure,
+        "samesite": settings.cookie_samesite,
+        "path": "/",
+    }
+    response.delete_cookie(settings.access_cookie_name, **common)
+    response.delete_cookie(settings.refresh_cookie_name, **common)
 
 
 @router.post("/login", response_model=TokenPair)
-def login(req: LoginRequest, request: Request) -> TokenPair:
-    """Validate credentials and mint a fresh token pair."""
-    client_ip = request.client.host if request.client else "unknown"
+def login(
+    req: LoginRequest,
+    request: Request,
+    response: Response,
+    db: Annotated[Session, Depends(get_db)],
+) -> TokenPair:
+    """Validate credentials against the users table and mint a fresh token pair.
 
-    if _login_limiter.is_rate_limited(client_ip):
+    On success, both tokens are returned in the body AND set as
+    HttpOnly cookies (when ``cookie_auth_enabled`` is True).
+    """
+    if _login_limiter.is_rate_limited(_client_ip(request)):
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many login attempts. Please try again later.",
             headers={"Retry-After": "60"},
         )
 
-    if req.username != settings.admin_username or req.password != settings.admin_password:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
-    return TokenPair(
-        access_token=create_access_token(req.username),
-        refresh_token=create_refresh_token(req.username),
+    user = db.query(User).filter(User.username == req.username).first()
+    # Unified error message — don't leak whether the username exists.
+    invalid_creds = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid credentials",
     )
+    if user is None or user.disabled:
+        raise invalid_creds
+
+    try:
+        ok = verify_password(req.password, cast(str, user.password_hash))
+    except ValueError:
+        # Stored hash is malformed (should not happen post-seed). Treat as
+        # a 500 — the row is in an unrecoverable state, and a 401 here
+        # would mask a real ops issue.
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Stored password hash is invalid; contact administrator",
+        ) from None
+
+    if not ok:
+        raise invalid_creds
+
+    user.last_login_at = datetime.now(timezone.utc)
+    db.commit()
+    access = create_access_token(cast(str, user.username))
+    refresh = create_refresh_token(cast(str, user.username))
+    _set_auth_cookies(response, access, refresh)
+    return TokenPair(access_token=access, refresh_token=refresh, token_type="bearer")
 
 
-@router.post("/refresh", response_model=AccessOnly)
-def refresh(req: RefreshRequest) -> AccessOnly:
-    """Exchange a valid refresh token for a new access token."""
-    payload = decode_token(req.refresh_token, expected_type="refresh")
+@router.post("/refresh", response_model=TokenPair)
+def refresh(
+    request: Request,
+    response: Response,
+    req: Annotated[RefreshRequest, ...] = RefreshRequest(),
+    db: Session = Depends(get_db),
+) -> TokenPair:
+    """Exchange a valid refresh token for a new token pair (rotation).
+
+    Reads the refresh token from the HttpOnly cookie first; falls back
+    to the request body for CLI callers. The old refresh jti is added
+    to the deny-list; the new pair has fresh jti claims. This is the
+    refresh side of PY-25: refresh tokens are single-use, so a stolen
+    refresh token can be observed and invalidated the next time the
+    legitimate user refreshes.
+    """
+    refresh_token = get_refresh_token_from_request(
+        request, req.refresh_token if req else None
+    )
+    if not refresh_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Missing refresh token (cookie or body)",
+        )
+    payload = decode_token(refresh_token, expected_type="refresh")
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
         )
-    return AccessOnly(access_token=create_access_token(payload["sub"]))
+    old_jti = payload.get("jti")
+    if old_jti and is_jti_revoked(db, old_jti):
+        # Old refresh was already used (or explicitly revoked). Rotation
+        # turns refresh into a single-use token; replay is a 401.
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked",
+        )
+    if old_jti and payload.get("exp") is not None:
+        revoke_jti(db, old_jti, cast(int, payload["exp"]))
+
+    subject = cast(str, payload["sub"])
+    access = create_access_token(subject)
+    new_refresh = create_refresh_token(subject)
+    _set_auth_cookies(response, access, new_refresh)
+    return TokenPair(access_token=access, refresh_token=new_refresh, token_type="bearer")
 
 
 @router.post("/logout")
-def logout() -> dict[str, bool]:
-    """Stateless JWT — clients just discard the tokens."""
+def logout(
+    token: Annotated[str, Depends(get_current_token)],
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict[str, bool]:
+    """Invalidate the current access token via the jti deny-list AND
+    clear the auth cookies. The client should also drop any cached
+    username state. The next request that presents the same token (via
+    cookie or header) will get 401 ``Token has been revoked``."""
+    payload = decode_token(token, expected_type="access")
+    if payload and payload.get("jti") is not None and payload.get("exp") is not None:
+        revoke_jti(db, cast(str, payload["jti"]), cast(int, payload["exp"]))
+    _clear_auth_cookies(response)
     return {"ok": True}
 
 
 @router.get("/me")
-def me(user: str = Depends(get_current_user)) -> dict[str, str]:
+def me(user: Annotated[str, Depends(get_current_user)]) -> dict[str, str]:
     """Return the currently logged-in user."""
     return {"username": user}

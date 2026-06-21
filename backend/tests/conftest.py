@@ -79,3 +79,31 @@ def engine_cache_cleanup():
     for engine in list(_engine_cache.values()):
         engine.dispose()
     _engine_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _reset_rate_limit_table():
+    """Truncate rate_limit_events between tests so login attempts don't
+    accumulate and trigger 429 on later tests in the same process.
+
+    The rate limiter is DB-backed since P3.2, so the in-memory reset
+    that lived here during P3.1 is gone — we now wipe the shared
+    ``rate_limit_events`` table.
+    """
+    from sqlalchemy import text
+
+    from app.database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        db.execute(text("DELETE FROM rate_limit_events"))
+        db.commit()
+    finally:
+        db.close()
+    yield
+    db = SessionLocal()
+    try:
+        db.execute(text("DELETE FROM rate_limit_events"))
+        db.commit()
+    finally:
+        db.close()

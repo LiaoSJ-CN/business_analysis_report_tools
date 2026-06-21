@@ -11,7 +11,10 @@ from app.config import settings
 # Import all models so Base.metadata is fully populated for autogenerate.
 from app.database import Base
 from app.models import data_source  # noqa: F401
+from app.models import rate_limit  # noqa: F401
 from app.models import report  # noqa: F401
+from app.models import revoked_token  # noqa: F401
+from app.models import user  # noqa: F401
 
 # Alembic Config object
 config = context.config
