@@ -3,6 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.crypto import encrypt as crypto_encrypt
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.data_source import DataSource
@@ -33,7 +34,10 @@ def create_data_source(payload: DataSourceCreate, db: Session = Depends(get_db))
             detail=f"Data source named '{payload.name}' already exists",
         )
 
-    source = DataSource(**payload.model_dump())
+    data = payload.model_dump()
+    if data.get("password"):
+        data["password"] = crypto_encrypt(data["password"])
+    source = DataSource(**data)
     db.add(source)
     db.commit()
     db.refresh(source)
@@ -59,6 +63,8 @@ def update_data_source(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Data source not found")
 
     update_data = payload.model_dump(exclude_unset=True)
+    if "password" in update_data and update_data["password"] is not None:
+        update_data["password"] = crypto_encrypt(update_data["password"])
     for field, value in update_data.items():
         setattr(source, field, value)
 

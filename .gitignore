@@ -87,5 +87,8 @@ frontend/dist/
 # Generated reports
 backend/generated_reports/
 
+# Logs
+backend/logs/
+
 # CodeGraph local index (built by codegraph tool, not source)
 .codegraph/

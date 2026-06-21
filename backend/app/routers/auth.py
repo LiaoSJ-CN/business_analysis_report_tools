@@ -5,13 +5,17 @@ Single shared admin user. Password is sourced from ``ADMIN_PASSWORD`` in
 login the response carries a short-lived access token (used as
 ``Authorization: Bearer <token>`` on every API call) and a longer-lived
 refresh token (used only at ``/auth/refresh``).
+
+Login is rate-limited per IP via an in-memory sliding window — see
+``app.middleware.rate_limit``.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from app.config import settings
 from app.deps import get_current_user
+from app.middleware.rate_limit import RateLimiter
 from app.services.jwt_auth import (
     create_access_token,
     create_refresh_token,
@@ -19,6 +23,12 @@ from app.services.jwt_auth import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Per-IP login rate limiter: default 10 attempts / minute.
+_login_limiter = RateLimiter(
+    max_requests=settings.login_rate_limit,
+    window_seconds=60,
+)
 
 
 class LoginRequest(BaseModel):
@@ -42,8 +52,17 @@ class AccessOnly(BaseModel):
 
 
 @router.post("/login", response_model=TokenPair)
-def login(req: LoginRequest) -> TokenPair:
+def login(req: LoginRequest, request: Request) -> TokenPair:
     """Validate credentials and mint a fresh token pair."""
+    client_ip = request.client.host if request.client else "unknown"
+
+    if _login_limiter.is_rate_limited(client_ip):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many login attempts. Please try again later.",
+            headers={"Retry-After": "60"},
+        )
+
     if req.username != settings.admin_username or req.password != settings.admin_password:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

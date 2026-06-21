@@ -25,6 +25,8 @@ sys.path.insert(0, str(BACKEND_ROOT))
 # Stable JWT secret so tokens minted in tests verify on subsequent
 # requests. Must be set BEFORE app modules import settings.
 os.environ.setdefault("JWT_SECRET_KEY", "pytest-secret-do-not-use-in-prod")
+# Stable encryption key for data-source password encryption at rest.
+os.environ.setdefault("ENCRYPTION_KEY", "2wjRI6T24tbe64kcfOGqMlTCUrg5gzk82QE8BTYbpNc=")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

@@ -1,0 +1,47 @@
+"""Transparent encryption/decryption for sensitive stored fields.
+
+Uses Fernet (AES-128-CBC with HMAC-SHA256) for authenticated symmetric
+encryption. The encryption key is sourced from ``ENCRYPTION_KEY`` env var
+(see ``config.py``).  Existing plaintext values in the database are
+detected at read time and returned unchanged so the system continues to
+work after the encryption feature is first enabled — they will be
+re-encrypted on the next update.
+"""
+
+from cryptography.fernet import Fernet, InvalidToken
+
+from app.config import settings
+
+_fernet: Fernet | None = None
+
+
+def _get_fernet() -> Fernet:
+    """Lazy-init the Fernet instance so config is resolved first."""
+    global _fernet
+    if _fernet is None:
+        _fernet = Fernet(settings.encryption_key.encode())
+    return _fernet
+
+
+def encrypt(stored: str) -> str:
+    """Encrypt a plaintext value and return the base64-encoded token.
+
+    The returned string can be stored directly into the database column
+    that previously held the plaintext value.
+    """
+    return _get_fernet().encrypt(stored.encode()).decode()
+
+
+def decrypt(stored: str) -> str:
+    """Decrypt a value previously produced by :func:`encrypt`.
+
+    If *stored* is a legacy plaintext value (does not look like a Fernet
+    token), it is returned as-is so existing data sources keep working
+    after the encryption feature is first enabled.  Those passwords will
+    be re-encrypted on the next update of the data source.
+    """
+    try:
+        return _get_fernet().decrypt(stored.encode()).decode()
+    except InvalidToken:
+        # Legacy plaintext value — not yet encrypted.
+        return stored

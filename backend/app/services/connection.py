@@ -5,6 +5,7 @@ from urllib.parse import quote_plus
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.crypto import decrypt as crypto_decrypt
 from app.models.data_source import DataSource
 
 
@@ -30,7 +31,8 @@ def build_connection_url(source: DataSource) -> str:
         # SQLite uses file path as database
         return f"sqlite:///{source.database}"
 
-    password = quote_plus(source.password)
+    plaintext = crypto_decrypt(str(source.password))
+    password = quote_plus(plaintext)
     url = f"{driver}://{source.username}:{password}@{source.host}:{source.port}/{source.database}"
     return url
 
