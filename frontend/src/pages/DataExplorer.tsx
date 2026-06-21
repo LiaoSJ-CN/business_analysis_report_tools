@@ -136,6 +136,13 @@ function newHistoryId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+/** Build a stable row-key from column values. More robust than array index
+ * for React reconciliation when the same row appears across re-renders. */
+function resultRowKey(record: Record<string, unknown>, columns: string[], index: number): string {
+  const content = columns.slice(0, 4).map((c) => String(record[c] ?? '\x00')).join('\x1f');
+  return content || String(index);
+}
+
 export default function DataExplorer() {
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [selectedDs, setSelectedDs] = useState<number | null>(null);
@@ -570,7 +577,6 @@ export default function DataExplorer() {
           </span>
           <div aria-label="SQL 编辑器">
             <SqlEditor
-              key={selectedTemplateId || 'new'}
               value={sql}
               onChange={handleSqlChange}
               height="180px"
@@ -692,7 +698,7 @@ export default function DataExplorer() {
             <Table
               columns={columns}
               dataSource={result.rows}
-              rowKey={(_, idx) => String(idx)}
+              rowKey={(record, idx) => resultRowKey(record, result.columns, idx)}
               size="small"
               scroll={{ x: result.columns.length * 150 }}
               pagination={{ pageSize: 50, showSizeChanger: true, showTotal: (t: number) => '共 ' + t + ' 条' }}

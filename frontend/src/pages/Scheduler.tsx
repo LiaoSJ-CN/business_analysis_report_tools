@@ -249,7 +249,19 @@ export default function SchedulerPage() {
           <Form.Item
             name="cron_expression"
             label="Cron 表达式"
-            rules={[{ required: true, message: '请输入 cron 表达式' }]}
+            rules={[
+              { required: true, message: '请输入 cron 表达式' },
+              {
+                validator: (_, value) => {
+                  if (!value) return Promise.resolve();
+                  const parts = String(value).trim().split(/\s+/);
+                  if (parts.length !== 6) {
+                    return Promise.reject(new Error('Cron 表达式需要6个字段（分 时 日 月 周 年），当前仅有 ' + parts.length + ' 个'));
+                  }
+                  return Promise.resolve();
+                },
+              },
+            ]}
             help="格式: 分 时 日 月 周 年 (例: 0 9 * * * * = 每天9点执行)"
           >
             <Input placeholder="0 9 * * * *" />

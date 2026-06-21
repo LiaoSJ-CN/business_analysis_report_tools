@@ -115,8 +115,7 @@ export default function ReportList() {
       await reportApi.download(report.id, format, filename);
       message.success({ content: `${format.toUpperCase()} 下载成功`, key: 'export' });
     } catch (err: unknown) {
-      const error = err as { response?: { data?: { detail?: string } } };
-      message.error({ content: error.response?.data?.detail || '生成失败', key: 'export' });
+      message.error({ content: formatError(err, '生成失败'), key: 'export' });
     }
   };
 
