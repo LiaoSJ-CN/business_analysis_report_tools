@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models.data_source import DataSource
-from app.routers.explorer import is_safe_sql
+from app.services.sql_validator import UnsafeSQLError, validate_select_only
 
 
 @pytest.fixture
@@ -111,8 +111,9 @@ def test_explorer_sql_error_returns_failure_not_500(
         "SELECT 1;--DROP TABLE x",
     ],
 )
-def test_is_safe_sql_rejects_any_semicolon(sql: str) -> None:
-    assert is_safe_sql(sql) is False, f"expected unsafe: {sql!r}"
+def test_validate_select_only_rejects_any_semicolon(sql: str) -> None:
+    with pytest.raises(UnsafeSQLError):
+        validate_select_only(sql)
 
 
 @pytest.mark.parametrize(
@@ -127,8 +128,8 @@ def test_is_safe_sql_rejects_any_semicolon(sql: str) -> None:
         "SELECT 1 /* trailing block */",
     ],
 )
-def test_is_safe_sql_allows_benign_comments(sql: str) -> None:
-    assert is_safe_sql(sql) is True, f"expected safe: {sql!r}"
+def test_validate_select_only_allows_benign_comments(sql: str) -> None:
+    validate_select_only(sql)  # must not raise
 
 
 def test_explorer_populates_engine_cache(

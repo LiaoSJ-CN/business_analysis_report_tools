@@ -13,6 +13,7 @@ from app.deps import get_current_user
 from app.models.data_source import DataSource
 from app.services.connection import ConnectionError
 from app.services.report_generator import _get_or_create_engine
+from app.services.sql_validator import UnsafeSQLError, validate_select_only
 
 logger = logging.getLogger(__name__)
 
@@ -40,49 +41,6 @@ class QueryResponse(BaseModel):
     error: str | None = None
 
 
-# Dangerous SQL keywords that should not be allowed
-FORBIDDEN_KEYWORDS = [
-    "DROP",
-    "DELETE",
-    "TRUNCATE",
-    "ALTER",
-    "CREATE",
-    "INSERT",
-    "UPDATE",
-    "GRANT",
-    "REVOKE",
-]
-
-
-def is_safe_sql(sql: str) -> bool:
-    """Check if SQL appears safe (SELECT only).
-
-    Strips comments first (the DB ignores them, so what reaches the engine
-    is what we must validate), then enforces: must start with SELECT, no
-    stacked statements (any ';' is forbidden), no DDL/DML keywords.
-    """
-    import re
-    # Strip block comments (/* ... */, may span newlines) and line
-    # comments (-- to end of line). Replace with a space so word
-    # boundaries don't merge across the seam.
-    s = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)
-    s = re.sub(r"--[^\n]*", " ", s)
-    upper_sql = s.upper().strip()
-
-    # No stacked statements: reject any ';' anywhere.
-    if ";" in upper_sql:
-        return False
-    # Must start with SELECT.
-    if not upper_sql.startswith("SELECT"):
-        return False
-    # No DDL/DML keywords as whole words (after comment stripping, so a
-    # keyword buried in a comment is fine; one in actual code isn't).
-    for keyword in FORBIDDEN_KEYWORDS:
-        if re.search(r"\b" + keyword + r"\b", upper_sql):
-            return False
-    return True
-
-
 @router.post("/query", response_model=QueryResponse)
 def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> QueryResponse:
     """Execute a SELECT SQL query against a data source."""
@@ -94,14 +52,18 @@ def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> Query
             detail=f"Data source {request.data_source_id} not found",
         )
 
-    # Security check
-    if not is_safe_sql(request.sql):
+    # Security check — all validation lives in sql_validator now.
+    # We keep returning 200 + success=False (not 422) so the existing
+    # frontend explorer code path is unchanged.
+    try:
+        validate_select_only(request.sql)
+    except UnsafeSQLError as exc:
         return QueryResponse(
             success=False,
             columns=[],
             rows=[],
             row_count=0,
-            error="Only SELECT queries are allowed for security reasons",
+            error=f"Only SELECT queries are allowed: {exc}",
         )
 
     # Build connection and execute using pandas

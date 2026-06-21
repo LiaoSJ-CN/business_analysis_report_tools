@@ -20,6 +20,13 @@ from app.config import settings
 from app.models.data_source import DataSource
 from app.models.report import Report, ReportItem
 from app.services.connection import build_connection_url
+from app.services.sql_validator import (
+    UnsafeSQLError,
+    build_safe_where_clause,
+    is_safe_qualified_identifier,
+    is_safe_select_expression,
+    substitute_parameters,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -119,140 +126,129 @@ class ReportGenerator:
     ) -> tuple[str, dict[str, Any]]:
         """Build SQL query from report item configuration with parameterized values.
 
+        All name/operator validation delegates to ``app.services.sql_validator``,
+        so a single AST-based defense covers the explorer's raw query, the
+        report-item auto-builder, and ``custom_sql`` templates.
+
         Returns:
             Tuple of (query_string, parameters_dict) for safe query execution.
+
+        Raises:
+            ReportGeneratorError: any unsafe input (bad table/field name,
+                disallowed WHERE operator, malformed ``custom_sql``).
         """
-        if item.custom_sql:
-            # Replace {param_name} placeholders with :param_name bind variables
-            # so user-supplied parameter values are never injected into SQL text.
-            sql = item.custom_sql
-            query_params: dict[str, Any] = {}
-            for key, value in parameters.items():
-                placeholder = f"{{{key}}}"
-                if placeholder in sql:
-                    sql = sql.replace(placeholder, f":{key}")
-                    query_params[key] = value
-            return sql, query_params
+        try:
+            if item.custom_sql:
+                # ``substitute_parameters`` also validates the resulting
+                # SQL, so a ``custom_sql`` that hides DML behind a {param}
+                # is caught here.
+                return substitute_parameters(item.custom_sql, parameters)
 
-        # Auto-generate query from configuration
-        table_name = item.table_name
-        if not table_name:
-            raise ReportGeneratorError(f"Report item '{item.name}' has no table_name defined")
-
-        # Validate and sanitize table name (only alphanumeric and underscore)
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
-            raise ReportGeneratorError(f"Invalid table name: {table_name}")
-
-        # Build SELECT clause (validate field names)
-        # Allow: *, table.field, field, and expressions like SUM(x) as y
-        fields = item.fields if item.fields else ["*"]
-        validated_fields = []
-        for f in fields:
-            if f == "*":
-                validated_fields.append(f)
-            # Allow SQL expressions (functions, aliases, etc.) in SELECT clause
-            elif re.match(r'^[a-zA-Z_][a-zA-Z0-9_.\s,()+-/*=<>!\'"]+$', f):
-                validated_fields.append(f)
-            else:
-                raise ReportGeneratorError(f"Invalid field/expression in SELECT: {f}")
-        select_clause = ", ".join(validated_fields)
-
-        # Build WHERE clause with parameterized values
-        where_parts = []
-        params: dict[str, Any] = {}
-        param_index = 0
-
-        for cond in (item.where_conditions or []):
-            field = cond.get("field") if isinstance(cond, dict) else cond.field
-            operator = cond.get("operator") if isinstance(cond, dict) else cond.operator
-            value = cond.get("value") if isinstance(cond, dict) else cond.value
-
-            # Validate field name
-            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', field):
-                raise ReportGeneratorError(f"Invalid field name: {field}")
-
-            # Handle parameter substitution
-            if isinstance(value, str) and value.startswith("{") and value.endswith("}"):
-                param_key = value[1:-1]
-                value = parameters.get(param_key, value)
-
-            if operator == "IN" and isinstance(value, list):
-                in_params = []
-                for v in value:
-                    param_name = f"p{param_index}"
-                    params[param_name] = v
-                    in_params.append(f":{param_name}")
-                    param_index += 1
-                where_parts.append(f"{field} IN ({', '.join(in_params)})")
-            elif operator == "IS NULL":
-                where_parts.append(f"{field} IS NULL")
-            elif operator == "IS NOT NULL":
-                where_parts.append(f"{field} IS NOT NULL")
-            elif operator == "LIKE":
-                param_name = f"p{param_index}"
-                params[param_name] = value
-                where_parts.append(f"{field} LIKE :{param_name}")
-                param_index += 1
-            elif isinstance(value, str):
-                param_name = f"p{param_index}"
-                params[param_name] = value
-                where_parts.append(f"{field} {operator} :{param_name}")
-                param_index += 1
-            elif value is None:
-                where_parts.append(f"{field} {operator} NULL")
-            else:
-                param_name = f"p{param_index}"
-                params[param_name] = value
-                where_parts.append(f"{field} {operator} :{param_name}")
-                param_index += 1
-
-        # Build GROUP BY clause (validate field names)
-        group_by_clause = ""
-        if item.group_by:
-            validated_group_by = []
-            for f in item.group_by:
-                if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', f):
-                    validated_group_by.append(f)
-                else:
-                    raise ReportGeneratorError(f"Invalid field name in GROUP BY: {f}")
-            group_by_clause = f" GROUP BY {', '.join(validated_group_by)}"
-
-        # Build ORDER BY clause (validate field names)
-        order_by_parts = []
-        for ob in (item.order_by or []):
-            field = ob.get("field") if isinstance(ob, dict) else ob.field
-            direction = ob.get("direction", "ASC") if isinstance(ob, dict) else ob.direction
-
-            if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', field):
-                raise ReportGeneratorError(f"Invalid field name in ORDER BY: {field}")
-            if direction.upper() not in ("ASC", "DESC"):
-                direction = "ASC"
-            order_by_parts.append(f"{field} {direction}")
-
-        order_by_clause = f" ORDER BY {', '.join(order_by_parts)}" if order_by_parts else ""
-
-        # Build LIMIT clause (validate integer)
-        limit_clause = ""
-        if item.limit is not None:
-            try:
-                limit_val = int(item.limit)
-                if limit_val > 0:
-                    limit_clause = " LIMIT :limit_param"
-                    params["limit_param"] = limit_val
-            except (ValueError, TypeError):
-                logger.warning(
-                    "Invalid limit=%r for report_item %s — "
-                    "ignoring, query will be unbounded",
-                    item.limit, item.id,
+            table_name = item.table_name
+            if not table_name:
+                raise ReportGeneratorError(
+                    f"Report item '{item.name}' has no table_name defined"
                 )
+            if not is_safe_qualified_identifier(table_name):
+                raise ReportGeneratorError(f"Invalid table name: {table_name}")
 
-        # Assemble query
-        query = f"SELECT {select_clause} FROM {table_name}"
-        if where_parts:
-            query += " WHERE " + " AND ".join(where_parts)
-        query += group_by_clause + order_by_clause + limit_clause
+            # Build SELECT clause. ``*`` is passed through; every other
+            # entry is parsed by sqlglot and rejected if it contains a
+            # statement separator, a comment, a quoted identifier, or a
+            # forbidden AST node.
+            fields = item.fields if item.fields else ["*"]
+            validated_fields: list[str] = []
+            for f in fields:
+                if f == "*" or is_safe_select_expression(f):
+                    validated_fields.append(f)
+                else:
+                    raise ReportGeneratorError(
+                        f"Invalid field/expression in SELECT: {f}"
+                    )
+            select_clause = ", ".join(validated_fields)
 
-        return query, params
+            # Build WHERE clause via the whitelisted-operator helper.
+            where_parts: list[str] = []
+            params: dict[str, Any] = {}
+            param_index = 0
+
+            for cond in (item.where_conditions or []):
+                field = cond.get("field") if isinstance(cond, dict) else cond.field
+                operator = cond.get("operator") if isinstance(cond, dict) else cond.operator
+                value = cond.get("value") if isinstance(cond, dict) else cond.value
+
+                # Resolve a ``{param}`` value before validation so the
+                # operator sees the real type.
+                if (
+                    isinstance(value, str)
+                    and value.startswith("{")
+                    and value.endswith("}")
+                ):
+                    value = parameters.get(value[1:-1], value)
+
+                fragment, param_index = build_safe_where_clause(
+                    field, operator, value, params, param_index=param_index
+                )
+                where_parts.append(fragment)
+
+            # Build GROUP BY clause.
+            group_by_clause = ""
+            if item.group_by:
+                validated_group_by: list[str] = []
+                for f in item.group_by:
+                    if is_safe_qualified_identifier(f):
+                        validated_group_by.append(f)
+                    else:
+                        raise ReportGeneratorError(
+                            f"Invalid field name in GROUP BY: {f}"
+                        )
+                group_by_clause = f" GROUP BY {', '.join(validated_group_by)}"
+
+            # Build ORDER BY clause (direction stays whitelisted to ASC/DESC).
+            order_by_parts: list[str] = []
+            for ob in (item.order_by or []):
+                field = ob.get("field") if isinstance(ob, dict) else ob.field
+                direction = (
+                    ob.get("direction", "ASC") if isinstance(ob, dict) else ob.direction
+                )
+                if not is_safe_qualified_identifier(field):
+                    raise ReportGeneratorError(
+                        f"Invalid field name in ORDER BY: {field}"
+                    )
+                if direction.upper() not in ("ASC", "DESC"):
+                    direction = "ASC"
+                order_by_parts.append(f"{field} {direction}")
+            order_by_clause = (
+                f" ORDER BY {', '.join(order_by_parts)}" if order_by_parts else ""
+            )
+
+            # Build LIMIT clause (validate integer; bound it as a param).
+            limit_clause = ""
+            if item.limit is not None:
+                try:
+                    limit_val = int(item.limit)
+                    if limit_val > 0:
+                        limit_clause = " LIMIT :limit_param"
+                        params["limit_param"] = limit_val
+                except (ValueError, TypeError):
+                    logger.warning(
+                        "Invalid limit=%r for report_item %s — "
+                        "ignoring, query will be unbounded",
+                        item.limit, item.id,
+                    )
+
+            # Assemble query.
+            query = f"SELECT {select_clause} FROM {table_name}"
+            if where_parts:
+                query += " WHERE " + " AND ".join(where_parts)
+            query += group_by_clause + order_by_clause + limit_clause
+            return query, params
+
+        except UnsafeSQLError as exc:
+            # Surface validator errors through the existing public
+            # exception type so the router / tests that catch
+            # ``ReportGeneratorError`` keep working.
+            raise ReportGeneratorError(str(exc)) from None
 
     def execute_query(self, query: str, params: dict[str, Any] | None = None) -> pd.DataFrame:
         """Execute a SQL query with parameters and return results as DataFrame."""
