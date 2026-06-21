@@ -3,13 +3,14 @@
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.data_source import DataSource
-from app.services.connection import ConnectionError, build_connection_url
+from app.services.connection import ConnectionError
+from app.services.report_generator import _get_or_create_engine
 
 router = APIRouter(
     prefix="/explorer",
@@ -87,14 +88,9 @@ def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> Query
 
     # Build connection and execute using pandas
     try:
-        url = build_connection_url(data_source)
-        if data_source.db_type == "sqlite":
-            engine = create_engine(url)
-        else:
-            engine = create_engine(url, connect_args={"connect_timeout": 30})
+        engine = _get_or_create_engine(data_source)
 
         df = pd.read_sql(text(request.sql), engine)
-        engine.dispose()
 
         columns = df.columns.tolist()
         rows = df.to_dict("records")

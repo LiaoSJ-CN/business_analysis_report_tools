@@ -97,3 +97,33 @@ def test_explorer_sql_error_returns_failure_not_500(
     assert body["success"] is False
     assert body["row_count"] == 0
     assert body["error"]  # populated with the SQL error message
+
+
+def test_explorer_populates_engine_cache(
+    client: TestClient, auth_headers: dict, seeded_sqlite_source: DataSource
+) -> None:
+    """Regression: explorer previously built a fresh engine on every query
+    and immediately disposed it, wasting TCP/auth on remote backends and
+    losing `pool_pre_ping=True`. It should now share
+    `_engine_cache` with `report_generator` so subsequent queries reuse
+    the engine and pick up the pre-ping protection.
+    """
+    # Force a miss so the test is order-independent: evict any cached engine
+    # for this data source first, then assert that a query repopulates it.
+    from app.services.report_generator import _engine_cache, evict_engine
+
+    evict_engine(seeded_sqlite_source.id)
+    assert seeded_sqlite_source.id not in _engine_cache
+
+    r = client.post(
+        "/explorer/query",
+        headers=auth_headers,
+        json={
+            "data_source_id": seeded_sqlite_source.id,
+            "sql": "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name LIMIT 1",
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["success"] is True
+
+    assert seeded_sqlite_source.id in _engine_cache
