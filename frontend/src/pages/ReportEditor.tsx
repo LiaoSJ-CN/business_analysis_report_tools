@@ -190,6 +190,8 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
         delete processedValues.display_config;
       }
       onSave(processedValues);
+    }).catch(() => {
+      // Ant Design already highlights invalid fields — no extra handling needed.
     });
   };
 
@@ -287,7 +289,7 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
                               <Input placeholder="字段" style={{ width: 120 }} />
                             </Form.Item>
                             <Form.Item name={[name, 'operator']} style={{ margin: 0 }}>
-                              <Select style={{ width: 100 }}>
+                              <Select style={{ width: 120 }}>
                                 <Select.Option value="=">=</Select.Option>
                                 <Select.Option value="!=">!=</Select.Option>
                                 <Select.Option value=">">&gt;</Select.Option>
@@ -296,6 +298,8 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
                                 <Select.Option value="<=">&lt;=</Select.Option>
                                 <Select.Option value="LIKE">LIKE</Select.Option>
                                 <Select.Option value="IN">IN</Select.Option>
+                                <Select.Option value="IS NULL">IS NULL</Select.Option>
+                                <Select.Option value="IS NOT NULL">IS NOT NULL</Select.Option>
                               </Select>
                             </Form.Item>
                             <Form.Item name={[name, 'value']} style={{ margin: 0 }}>
@@ -437,6 +441,7 @@ export default function ReportEditor() {
   const [report, setReport] = useState<Report | null>(null);
   const [dataSources, setDataSources] = useState<DataSource[]>([]);
   const [loading, setLoading] = useState(false);
+  const [dsLoading, setDsLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [itemModalVisible, setItemModalVisible] = useState(false);
   const [editingItem, setEditingItem] = useState<ReportItem | null>(null);
@@ -461,11 +466,14 @@ export default function ReportEditor() {
   }, [id]);
 
   const loadDataSources = useCallback(async () => {
+    setDsLoading(true);
     try {
       const data = await dataSourceApi.list();
       setDataSources(data);
     } catch (err: unknown) {
       message.error(formatError(err, '加载数据源失败'));
+    } finally {
+      setDsLoading(false);
     }
   }, []);
 
@@ -578,7 +586,7 @@ export default function ReportEditor() {
     }
   };
 
-  if (loading) return <div style={{ padding: 24 }}>加载中...</div>;
+  if (loading || dsLoading) return <div style={{ padding: 24 }}>加载中...</div>;
   if (!report) return <div style={{ padding: 24 }}>报表不存在</div>;
 
   return (

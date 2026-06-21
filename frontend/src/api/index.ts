@@ -52,8 +52,8 @@ api.interceptors.response.use(
         try {
           // Dedupe concurrent refresh calls.
           if (!refreshing) {
-            refreshing = axios
-              .post(`${API_BASE}/auth/refresh`, { refresh_token: refreshToken })
+            refreshing = api
+              .post('/auth/refresh', { refresh_token: refreshToken })
               .then((r) => r.data.access_token as string)
               .finally(() => {
                 refreshing = null;

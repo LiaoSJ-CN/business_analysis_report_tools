@@ -171,7 +171,10 @@ export default function DataExplorer() {
     });
   }, []);
 
-  // When template changes, update name and mark as not dirty
+  // When the selected template changes, load its name/SQL and clear dirty.
+  // Only react to selectedTemplateId — reacting to templates would revert
+  // the user's in-progress SQL edit back to the stored value on every save
+  // (the save updates templates, which re-triggers this effect).
   useEffect(() => {
     if (selectedTemplateId) {
       const t = templates.find((t) => t.id === selectedTemplateId);
@@ -181,7 +184,8 @@ export default function DataExplorer() {
         setIsDirty(false);
       }
     }
-  }, [selectedTemplateId, templates]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- see comment above
+  }, [selectedTemplateId]);
 
   // Track if current state differs from selected template
   const checkDirty = (newSql: string, newName: string) => {

@@ -19,6 +19,7 @@ import {
   Login,
 } from './pages';
 import { authApi } from './api';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const { Header, Content } = Layout;
 
@@ -146,7 +147,9 @@ export default function App() {
           path="/*"
           element={
             <RequireAuth>
-              <AppShell />
+              <ErrorBoundary>
+                <AppShell />
+              </ErrorBoundary>
             </RequireAuth>
           }
         />
