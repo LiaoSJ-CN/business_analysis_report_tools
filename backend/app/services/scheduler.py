@@ -20,6 +20,38 @@ from app.services.ssrf_guard import SSRFBlocked, create_webhook_client, validate
 logger = logging.getLogger(__name__)
 
 
+class InvalidCronExpression(ValueError):
+    """Raised when a cron expression fails validation.
+
+    Extends ValueError for backward compatibility — callers that catch
+    ValueError will still handle this. Distinct type allows targeted
+    handling (e.g. 400 in HTTP vs 500 for other ValueErrors)."""
+
+
+def validate_cron_expression(expression: str) -> None:
+    """Validate a 6-field cron expression (min hour dom mon dow year).
+
+    Raises InvalidCronExpression if the expression is malformed.
+    Safe to call from both Pydantic validators and service-layer code.
+    """
+    parts = expression.split()
+    if len(parts) != 6:
+        raise InvalidCronExpression(
+            "Cron expression must have 6 fields: min hour dom mon dow year"
+        )
+    try:
+        CronTrigger(
+            minute=parts[0],
+            hour=parts[1],
+            day=parts[2],
+            month=parts[3],
+            day_of_week=parts[4],
+            year=parts[5],
+        )
+    except (ValueError, TypeError) as exc:
+        raise InvalidCronExpression(f"Invalid cron expression: {exc}") from exc
+
+
 class ReportScheduler:
     """Manages scheduled report generation tasks."""
 
@@ -57,14 +89,14 @@ class ReportScheduler:
 
         Returns:
             The job ID
+
+        Raises:
+            InvalidCronExpression: if cron_expression is malformed.
         """
         job_id = f"report_{report_id}"
 
-        # Parse cron expression (min hour dom mon dow year)
+        validate_cron_expression(cron_expression)
         parts = cron_expression.split()
-        if len(parts) != 6:
-            raise ValueError("Cron expression must have 6 fields: min hour dom mon dow year")
-
         trigger = CronTrigger(
             minute=parts[0],
             hour=parts[1],
@@ -99,6 +131,12 @@ class ReportScheduler:
             return True
         return False
 
+    @staticmethod
+    def _format_next_run(job: Any) -> str | None:
+        """Format a job's next_run_time as ISO string, or None."""
+        next_run = getattr(job, "next_run_time", None)
+        return next_run.isoformat() if next_run else None
+
     def get_job_status(self, report_id: int) -> dict[str, Any] | None:
         """Get the status of a scheduled job."""
         job_id = f"report_{report_id}"
@@ -106,10 +144,9 @@ class ReportScheduler:
         if not job:
             return None
 
-        next_run = getattr(job, "next_run_time", None)
         return {
             "job_id": job.id,
-            "next_run": next_run.isoformat() if next_run else None,
+            "next_run": self._format_next_run(job),
             "trigger": str(job.trigger),
         }
 
@@ -120,9 +157,7 @@ class ReportScheduler:
             "jobs": [
                 {
                     "job_id": job.id,
-                    "next_run": next_run.isoformat()
-                    if (next_run := getattr(job, "next_run_time", None))
-                    else None,
+                    "next_run": self._format_next_run(job),
                     "trigger": str(job.trigger),
                 }
                 for job in self.scheduler.get_jobs()
@@ -138,6 +173,10 @@ class ReportScheduler:
         method is idempotent and safe to call periodically — that's the
         contract the sidecar relies on.
         """
+        # Expire any objects already loaded in this session so we always
+        # read fresh state from the database (sidecar reuses sessions).
+        db.expire_all()
+
         # Get all active scheduled reports from database
         reports = db.query(Report).filter(
             Report.is_scheduled == True,  # noqa: E712

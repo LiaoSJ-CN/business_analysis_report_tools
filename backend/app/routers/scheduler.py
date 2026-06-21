@@ -10,7 +10,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models.report import Report
 from app.schemas.report import ScheduleTaskCreate
-from app.services.scheduler import get_scheduler
+from app.services.scheduler import InvalidCronExpression, get_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +124,7 @@ def create_or_update_job(
             cron_expression=payload.cron_expression,
             notification_config=notification_config or {},
         )
-    except ValueError as exc:
+    except InvalidCronExpression as exc:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
@@ -141,16 +141,47 @@ def create_or_update_job(
 
 @router.delete("/jobs/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_job(report_id: int, db: Session = Depends(get_db)) -> None:
-    """Delete a scheduled job for a report."""
-    # Update report's schedule configuration
+    """Delete a scheduled job for a report.
+
+    DB update and scheduler removal are independent — the DB write marks
+    the report as unscheduled (the sidecar will drop the job on its next
+    sync), and the in-process scheduler removal is best-effort (in sidecar
+    mode ``SCHEDULER_DISABLED=true`` the web process scheduler is empty,
+    so this is a no-op — the sidecar handles it).
+    """
     report_obj = db.query(Report).filter(Report.id == report_id).first()
-    if report_obj:
+    if not report_obj:
+        # Still clean up any lingering scheduler job for this report ID.
+        scheduler = get_scheduler()
+        scheduler.remove_report_job(report_id)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Report {report_id} not found",
+        )
+
+    try:
         report_obj.is_scheduled = False
         report_obj.cron_expression = None
         report_obj.schedule_description = None
         report_obj.notification_config = None
         db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error("Failed to update report %d schedule state: %s", report_id, exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to remove schedule",
+        ) from exc
 
-    scheduler = get_scheduler()
-    scheduler.remove_report_job(report_id)
+    # Best-effort: remove from the in-process scheduler. In sidecar mode the
+    # web-process scheduler is empty (SCHEDULER_DISABLED=true), so this is a
+    # no-op; the sidecar picks up the DB change on its next sync.
+    try:
+        scheduler = get_scheduler()
+        scheduler.remove_report_job(report_id)
+    except Exception as exc:
+        logger.warning(
+            "Scheduler removal for report %d failed (sidecar will clean up): %s",
+            report_id, exc,
+        )
     return None

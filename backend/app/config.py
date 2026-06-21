@@ -109,10 +109,25 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
 
-def _resolve_jwt_key(raw: str) -> str:
-    """Return a usable JWT signing key, generating one if needed."""
+class ConfigurationError(RuntimeError):
+    """Fatal configuration error — app cannot start safely."""
+
+
+def _resolve_jwt_key(raw: str, debug: bool) -> str:
+    """Return a usable JWT signing key.
+
+    In dev mode a missing key generates an ephemeral one with a warning.
+    In production a missing key is fatal — random keys invalidate every
+    token on restart, breaking all existing sessions silently.
+    """
     if raw:
         return raw
+    if not debug:
+        raise ConfigurationError(
+            "JWT_SECRET_KEY is not set. "
+            "Set JWT_SECRET_KEY in backend/.env for stable tokens. "
+            "Ephemeral keys are only allowed when DEBUG=true."
+        )
     generated = secrets.token_urlsafe(48)
     warnings.warn(
         "JWT_SECRET_KEY is not set; using an ephemeral random key. "
@@ -123,10 +138,19 @@ def _resolve_jwt_key(raw: str) -> str:
     return generated
 
 
-def _resolve_encryption_key(raw: str) -> str:
-    """Return a usable Fernet key, generating one if needed."""
+def _resolve_encryption_key(raw: str, debug: bool) -> str:
+    """Return a usable Fernet key.
+
+    Same policy as _resolve_jwt_key: fatal in production, ephemeral in dev.
+    """
     if raw:
         return raw
+    if not debug:
+        raise ConfigurationError(
+            "ENCRYPTION_KEY is not set. "
+            "Set ENCRYPTION_KEY in backend/.env for stable encryption. "
+            "Ephemeral keys are only allowed when DEBUG=true."
+        )
     generated = base64.urlsafe_b64encode(os.urandom(32)).decode()
     logger.warning(
         "ENCRYPTION_KEY is not set; using an ephemeral random key. "
@@ -137,5 +161,5 @@ def _resolve_encryption_key(raw: str) -> str:
 
 
 settings = Settings()
-settings.jwt_secret_key = _resolve_jwt_key(settings.jwt_secret_key)
-settings.encryption_key = _resolve_encryption_key(settings.encryption_key)
+settings.jwt_secret_key = _resolve_jwt_key(settings.jwt_secret_key, settings.debug)
+settings.encryption_key = _resolve_encryption_key(settings.encryption_key, settings.debug)

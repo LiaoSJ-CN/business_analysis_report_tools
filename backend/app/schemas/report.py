@@ -4,8 +4,9 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from apscheduler.triggers.cron import CronTrigger
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.services.scheduler import validate_cron_expression
 
 
 class ItemType(str, Enum):
@@ -273,29 +274,8 @@ class ScheduleTaskCreate(BaseModel):
     @field_validator("cron_expression")
     @classmethod
     def _validate_cron(cls, value: str) -> str:
-        """Delegate per-field range validation to APScheduler's CronTrigger.
-
-        Earlier versions used a brittle regex that only checked segment count
-        + character class, so e.g. ``99 9 * * * *`` slipped through Pydantic
-        and surfaced as a 400 from the scheduler router. Constructing
-        ``CronTrigger(...)`` is the authoritative check (same library that
-        actually parses the expression at job-add time), and lets invalid
-        expressions surface as 422 at request-parse time.
-        """
-        parts = value.split()
-        if len(parts) != 6:
-            raise ValueError(
-                "Cron expression must have 6 fields: min hour dom mon dow year"
-            )
-        try:
-            CronTrigger(
-                minute=parts[0],
-                hour=parts[1],
-                day=parts[2],
-                month=parts[3],
-                day_of_week=parts[4],
-                year=parts[5],
-            )
-        except (ValueError, TypeError) as exc:
-            raise ValueError(f"Invalid cron expression: {exc}") from exc
+        """Validate via the shared service-layer validator so cron
+        expressions are checked consistently regardless of entry point
+        (API request, sync_with_database, add_report_job)."""
+        validate_cron_expression(value)
         return value
