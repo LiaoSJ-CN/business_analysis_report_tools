@@ -6,6 +6,7 @@
 
 ### Bug 修复
 - 前端 `DisplayConfig` 字段命名统一为 snake_case：之前表单用 `showLegend`/`legendPosition`/`showGrid` 等 camelCase，但后端 Pydantic 是 snake_case，Pydantic v2 默认 `extra='ignore'` 会**静默丢弃**用户切换的图例/网格线等开关。新增 3 个回归测试（`test_display_config_drops_unknown_camelcase_keys` 等）锁住「camelCase 必须被忽略」这条契约，避免后续加 `populate_by_name` 时回退
+- **导出按钮坏掉**：`ReportPreview.tsx`「导出 Excel/HTML」用 `window.open(getExportUrl(...))` 打开 JWT-gated 端点，但 `window.open` 不会附 `Authorization` header → 401 跳登录页。修：改用 axios-backed `reportApi.download`（同步修了 `api/index.ts` 的 `download` 之前用裸 `fetch` 也没附 token，整条 download 流都坏——`ReportList` 也受益）
 
 ### 计划中
 见 `~/.claude/projects/-Users-liaosj-Documents-code-business-analysis-report-tools/memory/known-todos.md`

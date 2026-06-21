@@ -216,12 +216,14 @@ export const reportApi = {
     return `${API_BASE}/reports/${reportId}/export/${format}`;
   },
 
+  // Fetch via axios (not raw `fetch`) so the request interceptor attaches the
+  // Bearer token. The `/export/{format}` endpoint is JWT-gated — a raw fetch
+  // without an Authorization header always gets 401.
   download: async (reportId: number, format: 'excel' | 'html', filename: string): Promise<void> => {
-    const response = await fetch(`${API_BASE}/reports/${reportId}/export/${format}`);
-    if (!response.ok) {
-      throw new Error('下载失败');
-    }
-    const blob = await response.blob();
+    const response = await api.get(`/reports/${reportId}/export/${format}`, {
+      responseType: 'blob',
+    });
+    const blob = new Blob([response.data]);
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

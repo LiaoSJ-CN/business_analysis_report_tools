@@ -63,11 +63,14 @@ export default function ReportPreview() {
   const handleExport = async (format: 'excel' | 'html') => {
     if (!report) return;
     try {
-      const result = await reportApi.generate(report.id, format);
-      if (result.success && result.file_path) {
-        window.open(reportApi.getExportUrl(report.id, format), '_blank');
-        message.success(`${format.toUpperCase()} 导出成功`);
-      }
+      // Use the axios-backed `download` (with Bearer token attached by the
+      // interceptor) instead of `window.open(getExportUrl(...))` — window.open
+      // does NOT attach the Authorization header, so the auth-gated export
+      // endpoint would 401 and bounce to /login instead of downloading.
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 15);
+      const filename = `${report.name}_${timestamp}.${format}`;
+      await reportApi.download(report.id, format, filename);
+      message.success(`${format.toUpperCase()} 导出成功`);
     } catch (err: unknown) {
       const error = err as { response?: { data?: { detail?: string } } };
       message.error(error.response?.data?.detail || '导出失败');
