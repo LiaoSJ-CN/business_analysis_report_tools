@@ -468,6 +468,12 @@ class ReportGenerator:
                 content = config.get("content", "") if config else ""
                 html_parts.append(f"<div class='text-block'>{h(content)}</div>")
 
+            else:
+                logger.warning(
+                    "Unknown item_type=%r for item %s — skipping rendering",
+                    item.item_type, cast(str, item.name),
+                )
+
         html_parts.extend([
             f"<div class='timestamp'>"
             f"Generated at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
@@ -604,7 +610,7 @@ def generate_report(
                             # Clean sheet name
                             sheet_name = re.sub(r'[\\/*?:\[\]]', '_', item_name[:31])
                             df.to_excel(writer, sheet_name=sheet_name, index=False)
-            except Exception as exc:
+            except (ValueError, KeyError, OSError) as exc:
                 raise ReportGeneratorError(f"Failed to write Excel report: {exc}") from exc
 
             return {"file_path": str(filename), "errors": errors}

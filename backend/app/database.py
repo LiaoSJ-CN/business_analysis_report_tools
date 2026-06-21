@@ -29,7 +29,13 @@ engine = create_engine(
 
 @event.listens_for(engine, "connect")
 def _receive_connect(dbapi_connection, connection_record) -> None:  # type: ignore[no-untyped-def]
-    """Log pool checkouts so pool exhaustion is debuggable."""
+    """Log pool checkouts so pool exhaustion is debuggable.
+
+    Only emits when the logger is at DEBUG level — avoids per-connection
+    overhead in production (INFO / WARNING default).
+    """
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
     pool = engine.pool
     if pool is not None:
         logger.debug(

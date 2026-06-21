@@ -103,6 +103,16 @@ def reorder_report_items(
     back the optimistic UI update.
     """
     item_ids = [e.item_id for e in payload.items]
+
+    # Reject duplicate order_index values — the caller must assign unique
+    # positions (the frontend's arrayMove-based reorder already does this).
+    order_values = [e.order_index for e in payload.items]
+    if len(order_values) != len(set(order_values)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="order_index values must be unique",
+        )
+
     rows = (
         db.query(ReportItem)
         .filter(ReportItem.id.in_(item_ids), ReportItem.report_id == report_id)

@@ -31,22 +31,30 @@ from app.services.scheduler import get_scheduler
 # ---------------------------------------------------------------------------
 
 LOG_DIR = Path(__file__).resolve().parent.parent / "logs"
-LOG_DIR.mkdir(parents=True, exist_ok=True)
 
-logging.basicConfig(
-    level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",
-    handlers=[
-        logging.StreamHandler(),
-        logging.handlers.RotatingFileHandler(
-            LOG_DIR / "app.log",
-            maxBytes=10 * 1024 * 1024,  # 10 MB
-            backupCount=5,
-            encoding="utf-8",
-        ),
-    ],
-)
+
+def _configure_logging() -> None:
+    """Configure root logging once at application startup.
+
+    Called from lifespan so it runs after settings are resolved and
+    before any request is served, rather than at import time.
+    """
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper(), logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S",
+        handlers=[
+            logging.StreamHandler(),
+            logging.handlers.RotatingFileHandler(
+                LOG_DIR / "app.log",
+                maxBytes=10 * 1024 * 1024,  # 10 MB
+                backupCount=5,
+                encoding="utf-8",
+            ),
+        ],
+    )
+
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +107,7 @@ def _seed_admin_user() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Application lifespan manager."""
+    _configure_logging()
     _seed_admin_user()
     if settings.scheduler_disabled:
         logger.info(

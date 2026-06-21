@@ -101,6 +101,13 @@ class Settings(BaseSettings):
     # MUST pin this — changing the key makes stored passwords unreadable.
     encryption_key: str = ""
 
+    # --- Data explorer ---
+    # Maximum rows returned by /explorer/query (prevents memory exhaustion).
+    explorer_max_rows: int = 10_000
+    # Statement timeout in seconds for explorer queries. Only applied when
+    # the target DB supports it (PostgreSQL-based). 0 = no timeout.
+    explorer_statement_timeout: int = 30
+
     # --- Report output ---
     # Directory where generated report files (HTML / Excel) are saved.
     generated_reports_dir: Path = Path(__file__).resolve().parent.parent / "generated_reports"

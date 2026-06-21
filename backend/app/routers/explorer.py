@@ -1,14 +1,18 @@
 """API routes for data exploration (SQL query execution)."""
 
 import logging
+from datetime import datetime as dt
+from decimal import Decimal
 from typing import Any, cast
 
+import numpy as np
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user
 from app.models.data_source import DataSource
@@ -71,14 +75,30 @@ def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> Query
     try:
         engine = _get_or_create_engine(data_source)
 
-        df = pd.read_sql(text(request.sql), engine)
+        # Statement timeout for PostgreSQL-based backends (PY-2).
+        # SQLite doesn't support SET — skip silently.
+        timeout = max(0, settings.explorer_statement_timeout)
+        if timeout > 0 and getattr(engine, "name", "") in ("postgresql",):
+            with engine.connect() as conn:
+                conn.execute(text(f"SET LOCAL statement_timeout = {timeout * 1000}"))
+                conn.commit()
+
+        # Row cap: wrap user SQL in a subquery so we never pull unlimited
+        # rows into memory, even if the user forgets a LIMIT clause.
+        max_rows = max(1, settings.explorer_max_rows)
+        capped_sql = (
+            f"SELECT * FROM ({request.sql}) AS _explorer_sub "
+            f"LIMIT {max_rows}"
+        )
+
+        df = pd.read_sql(text(capped_sql), engine)
 
         columns = df.columns.tolist()
         rows = df.to_dict("records")
         row_count = len(rows)
 
-        # Convert types for JSON serialization
-        import numpy as np
+        # Convert types for JSON serialization — pandas/numpy types plus
+        # datetime, Decimal, and bytes which json.dumps can't serialize.
         cleaned_rows: list[dict[str, Any]] = []
         for row in cast(list[dict[str, Any]], rows):
             cleaned_row: dict[str, Any] = {}
@@ -87,6 +107,12 @@ def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> Query
                     cleaned_row[k] = None
                 elif isinstance(v, (np.integer, np.floating)):
                     cleaned_row[k] = v.item()
+                elif isinstance(v, dt):
+                    cleaned_row[k] = v.isoformat()
+                elif isinstance(v, Decimal):
+                    cleaned_row[k] = float(v)
+                elif isinstance(v, bytes):
+                    cleaned_row[k] = v.decode("utf-8", errors="replace")
                 else:
                     cleaned_row[k] = v
             cleaned_rows.append(cleaned_row)
