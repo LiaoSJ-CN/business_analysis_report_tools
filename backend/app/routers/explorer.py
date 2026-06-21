@@ -51,16 +51,30 @@ FORBIDDEN_KEYWORDS = [
 
 
 def is_safe_sql(sql: str) -> bool:
-    """Check if SQL appears safe (SELECT only)."""
+    """Check if SQL appears safe (SELECT only).
+
+    Strips comments first (the DB ignores them, so what reaches the engine
+    is what we must validate), then enforces: must start with SELECT, no
+    stacked statements (any ';' is forbidden), no DDL/DML keywords.
+    """
     import re
-    upper_sql = sql.upper().strip()
-    # Check it starts with SELECT
+    # Strip block comments (/* ... */, may span newlines) and line
+    # comments (-- to end of line). Replace with a space so word
+    # boundaries don't merge across the seam.
+    s = re.sub(r"/\*.*?\*/", " ", sql, flags=re.DOTALL)
+    s = re.sub(r"--[^\n]*", " ", s)
+    upper_sql = s.upper().strip()
+
+    # No stacked statements: reject any ';' anywhere.
+    if ";" in upper_sql:
+        return False
+    # Must start with SELECT.
     if not upper_sql.startswith("SELECT"):
         return False
-    # Check no dangerous keywords appear as whole words
+    # No DDL/DML keywords as whole words (after comment stripping, so a
+    # keyword buried in a comment is fine; one in actual code isn't).
     for keyword in FORBIDDEN_KEYWORDS:
-        # Use word boundary to avoid false matches like CREATE in created_date
-        if re.search(r'\b' + keyword + r'\b', upper_sql):
+        if re.search(r"\b" + keyword + r"\b", upper_sql):
             return False
     return True
 

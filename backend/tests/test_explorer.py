@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.database import SessionLocal
 from app.models.data_source import DataSource
+from app.routers.explorer import is_safe_sql
 
 
 @pytest.fixture
@@ -97,6 +98,37 @@ def test_explorer_sql_error_returns_failure_not_500(
     assert body["success"] is False
     assert body["row_count"] == 0
     assert body["error"]  # populated with the SQL error message
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        # Stacked statements — `;` enables running multiple statements; the
+        # explorer must be strictly SELECT-only, no second clause allowed.
+        "SELECT 1; SELECT 2",
+        "SELECT 1;",
+        "SELECT 1; -- anything",
+        "SELECT 1;--DROP TABLE x",
+    ],
+)
+def test_is_safe_sql_rejects_any_semicolon(sql: str) -> None:
+    assert is_safe_sql(sql) is False, f"expected unsafe: {sql!r}"
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        # Comments are no-ops to the database; what matters is the SQL
+        # the engine will actually execute. `SELECT /*note*/ 1` and
+        # `SELECT 1 -- note` are semantically identical to `SELECT 1`.
+        "SELECT 1",
+        "SELECT 1 -- trailing line comment",
+        "SELECT /*inline*/ 1",
+        "SELECT 1 /* trailing block */",
+    ],
+)
+def test_is_safe_sql_allows_benign_comments(sql: str) -> None:
+    assert is_safe_sql(sql) is True, f"expected safe: {sql!r}"
 
 
 def test_explorer_populates_engine_cache(
