@@ -260,7 +260,7 @@ def generate_report_endpoint(request: ReportGenerateRequest, db: Session = Depen
 def preview_report(
     report_id: int,
     request: Request,
-    format: str = Query(default="html", pattern="^(html|json)$"),
+    format: str = Query(default="html", pattern="^html$"),
     db: Session = Depends(get_db),
 ):
     """Preview a report without generating a file. Returns raw HTML so the

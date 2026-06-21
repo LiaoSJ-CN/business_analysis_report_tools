@@ -36,7 +36,14 @@ class SchedulerSyncResponse(BaseModel):
     message: str
 
 
-@router.get("/status", response_model=dict)
+class SchedulerStatusResponse(BaseModel):
+    """Response schema for scheduler status."""
+
+    is_running: bool
+    jobs: list[SchedulerJobResponse]
+
+
+@router.get("/status", response_model=SchedulerStatusResponse)
 def get_scheduler_status():
     """Get the current status of the scheduler."""
     return get_scheduler().get_status()

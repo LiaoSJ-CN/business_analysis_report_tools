@@ -208,7 +208,7 @@ export const reportApi = {
 
   preview: async (
     reportId: number,
-    format: 'html' | 'json' = 'html'
+    format: 'html' = 'html'
   ): Promise<{ preview_data: unknown }> => {
     const { data } = await api.get(`/reports/${reportId}/preview`, { params: { format } });
     return data;

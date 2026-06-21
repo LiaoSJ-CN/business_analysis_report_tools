@@ -18,10 +18,10 @@ export interface DataSourceCreate {
   name: string;
   db_type: 'opengauss' | 'dws' | 'postgresql' | 'sqlite';
   host?: string;
-  port: number;
+  port?: number;
   database: string;
-  username: string;
-  password: string;
+  username?: string;
+  password?: string;
   schema_name?: string;
   description?: string;
 }
@@ -37,10 +37,7 @@ export type ChartType =
   | 'scatter'
   | 'bubble'
   | 'area'
-  | 'horizontalBar'
-  | 'funnel'
-  | 'gauge'
-  | 'heatmap';
+  | 'horizontalBar';
 export type OperatorType = '=' | '!=' | '>' | '>=' | '<' | '<=' | 'LIKE' | 'IN' | 'IS NULL' | 'IS NOT NULL';
 
 export interface WhereCondition {

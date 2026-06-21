@@ -150,5 +150,5 @@ def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> Query
             columns=[],
             rows=[],
             row_count=0,
-            error=str(exc),
+            error="An unexpected error occurred. Please check the server logs for details.",
         )

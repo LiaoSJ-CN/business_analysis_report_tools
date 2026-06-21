@@ -142,6 +142,7 @@ class ReportScheduler:
         ).all()
         active_ids = {r.id for r in reports}
 
+        failed = 0
         for report in reports:
             try:
                 self.add_report_job(
@@ -150,7 +151,14 @@ class ReportScheduler:
                     notification_config=report.notification_config or {},
                 )
             except Exception as exc:
+                failed += 1
                 logger.error(f"Failed to schedule report {report.id}: {exc}")
+        if failed and failed == len(reports):
+            logger.warning(
+                "All %d active scheduled reports failed to sync. "
+                "Check CRON expressions and database connectivity.",
+                failed,
+            )
 
         # Drop jobs whose DB row no longer qualifies (unscheduled, paused,
         # deleted). Without this, a periodic re-sync would leak stale jobs.

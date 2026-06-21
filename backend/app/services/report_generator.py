@@ -78,8 +78,8 @@ def evict_engine(data_source_id: int) -> None:
     """
     with _engine_cache_lock:
         engine = _engine_cache.pop(data_source_id, None)
-    if engine is not None:
-        engine.dispose()
+        if engine is not None:
+            engine.dispose()
 
 
 def _safe_filename(name: str, fallback: str = "report") -> str:
@@ -609,4 +609,4 @@ def generate_report(
 
             return {"file_path": str(filename), "errors": errors}
 
-    return {"errors": errors}
+    raise ReportGeneratorError(f"Unsupported output format: {output_format}")
