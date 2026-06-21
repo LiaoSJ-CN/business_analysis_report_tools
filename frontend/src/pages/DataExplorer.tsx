@@ -487,12 +487,15 @@ export default function DataExplorer() {
         {/* 数据源选择 */}
         <Space style={{ marginBottom: 16 }} wrap>
           <div>
-            <div style={{ marginBottom: 4, fontWeight: 500 }}>数据源</div>
+            <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>
+              数据源
+            </span>
             <Select
               style={{ width: 200 }}
               value={selectedDs}
               onChange={(v) => setSelectedDs(v)}
               placeholder="选择数据源"
+              aria-label="数据源"
             >
               {dataSources.map((ds) => (
                 <Option key={ds.id} value={ds.id}>
@@ -504,10 +507,13 @@ export default function DataExplorer() {
 
           {/* 模板选择 */}
           <div>
-            <div style={{ marginBottom: 4, fontWeight: 500 }}>模板</div>
+            <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>
+              模板
+            </span>
             <Space>
               <Select
                 style={{ width: 180 }}
+                aria-label="模板"
                 placeholder="选择或新建模板"
                 value={selectedTemplateId}
                 onChange={handleSelectTemplate}
@@ -541,11 +547,12 @@ export default function DataExplorer() {
 
         {/* 模板名称（内联编辑） */}
         <div style={{ marginBottom: 16 }}>
-          <div style={{ marginBottom: 4, fontWeight: 500 }}>
+          <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>
             模板名称 {isDirty && <span style={{ color: '#faad14', fontSize: 12 }}>(有未保存的更改)</span>}
-          </div>
+          </span>
           <Input
             placeholder="输入模板名称"
+            aria-label="模板名称"
             value={templateName}
             onChange={handleNameChange}
             style={{ maxWidth: 400 }}
@@ -554,14 +561,18 @@ export default function DataExplorer() {
 
         {/* SQL 编辑器 */}
         <div style={{ marginBottom: 16 }}>
-          <div style={{ marginBottom: 4, fontWeight: 500 }}>SQL 语句</div>
-          <SqlEditor
-            key={selectedTemplateId || 'new'}  // 强制模板变化时重新创建编辑器
-            value={sql}
-            onChange={handleSqlChange}
-            height="180px"
-            placeholder="输入 SQL (SELECT only)"
-          />
+          <span style={{ marginBottom: 4, fontWeight: 500, display: 'block' }}>
+            SQL 语句
+          </span>
+          <div aria-label="SQL 编辑器">
+            <SqlEditor
+              key={selectedTemplateId || 'new'}
+              value={sql}
+              onChange={handleSqlChange}
+              height="180px"
+              placeholder="输入 SQL (SELECT only)"
+            />
+          </div>
         </div>
 
         {/* 操作按钮 */}

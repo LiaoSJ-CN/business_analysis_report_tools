@@ -142,7 +142,7 @@ export default function ReportList() {
       key: 'name',
       width: 200,
       render: (name, record) => (
-        <a onClick={() => navigate(`/reports/${record.id}`)}>{name}</a>
+        <Button type="link" onClick={() => navigate(`/reports/${record.id}`)}>{name}</Button>
       ),
     },
     {
