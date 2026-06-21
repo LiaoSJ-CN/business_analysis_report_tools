@@ -42,7 +42,9 @@
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(f'数据源: {len\\(d\\)} 个'\\)\")",
       "mcp__plugin_ecc_playwright__browser_navigate",
       "Read(//private/tmp/**)",
-      "mcp__codegraph__codegraph_explore"
+      "mcp__codegraph__codegraph_explore",
+      "Bash(npx eslint *)",
+      "Bash(codegraph explore *)"
     ]
   }
 }

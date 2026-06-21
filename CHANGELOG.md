@@ -6,6 +6,11 @@
 
 ### 新增
 - `ensure_columns` 启动期 schema 自愈：补齐 `create_all` 漏掉的「已存在表 + 新增列」（`Base.metadata.create_all` 只建表不补列）。新模块 `app/db_migrations.py`，在 `main.py` 启动时于 `create_all` 之后调用。幂等，`NOT NULL` 无 `server_default` 的列会 log warning + 跳过（要求人工迁移）
+- 调度器暂停/恢复 UI：Scheduler 页面每个定时任务增加 Pause/Resume 按钮和绿/橙状态标签，通过现有 POST 端点传递 `is_active` 控制启停
+
+### 安全修复
+- **SSRF 防护**：调度器 webhook URL 在发送前校验，阻断非 http/https scheme、IPv4/IPv6 内网/回环/保留地址、DNS 解析到被屏蔽 IP 的域名。新模块 `app/services/ssrf_guard.py`（`validate_webhook_url()`），含 30 个单元测试 + 4 个集成测试。`_send_notification` 禁用重定向跟随（`follow_redirects=False`）
+- **Explorer SQL 多语句注入**：`is_safe_sql` 先剥离 SQL 注释再拒绝任何 `;` 字符，堵住 `SELECT 1; DROP TABLE users` 绕过。已有的关键字检查（`\bDROP\b` 等）保留为纵深防御
 
 ### Bug 修复
 - 前端 `DisplayConfig` 字段命名统一为 snake_case：之前表单用 `showLegend`/`legendPosition`/`showGrid` 等 camelCase，但后端 Pydantic 是 snake_case，Pydantic v2 默认 `extra='ignore'` 会**静默丢弃**用户切换的图例/网格线等开关。新增 3 个回归测试（`test_display_config_drops_unknown_camelcase_keys` 等）锁住「camelCase 必须被忽略」这条契约，避免后续加 `populate_by_name` 时回退
@@ -13,6 +18,7 @@
 - DataExplorer 查询错误提示条件写反：原条件 `result.success && result.error` 是死代码（API 设 `success=false` 才回 `error`），改成 `!result.success && result.error`，SQL 执行错误才会显示详情
 - DataExplorer CSV 导出不符合 RFC 4180：多行单元格值、含 `,`/`"` 的值会破格式。引入 `csvEscape` helper（命中 `,`/`"`/CR/LF 时整段加引号，内部 `"` 双写），行结束符统一 `\r\n`
 - 报表编辑器拖拽排序从 N 并发 PUT 改为单次 `PATCH /reports/{id}/items/order`：后端单事务原子更新 `order_index`，所有 `item_id` 必须属于目标 report（否则 422 整批拒绝）。消除部分写导致的不一致，同时去掉 N+1 请求；上下移按钮 `handleMoveItem` 同步切到该端点
+- 报表预览逐项错误展示：`generate_report()` 收集每个 item 的查询失败原因，`render_html(errors=...)` 在 HTML 中渲染红色错误横幅（`html.escape` 转义防 XSS）。`ReportGenerateResponse` 新增 `item_errors` 字段供编程调用方使用。Excel 路径保持现有行为（空白 sheet）
 
 ### 计划中
 见 `~/.claude/projects/-Users-liaosj-Documents-code-business-analysis-report-tools/memory/known-todos.md`
@@ -39,48 +45,6 @@
 - `backend/tests/` pytest 套件取代 `scripts/smoke_*.py`（80 个用例，~0.2s）
 
 ---
-
-## [0.2.0] - 2026-06-20
-
-### 安全修复
-- **严重**: 修复 `report_generator.py` 中的 SQL 注入漏洞，使用参数化查询
-- **严重**: 在 `ReportPreview.tsx` 中添加 XSS 防护，使用 DOMPurify 进行 HTML 消毒
-- 修复 `scheduler.py` 中的异常吞没问题，改为正确的日志记录
-- 预览 iframe 改为 blob-URL 模式：前端用 `Authorization` 头取 HTML → `URL.createObjectURL(new Blob([html]))` → `iframe.src`，消除 `?token=` 出现在 URL 中泄漏到浏览器历史/访问日志的风险
-- `report_generator.render_html` 接受可选 `base_url` 参数并在 HTML head 注入 `<base href>`，保证相对路径 `/static/chart.umd.min.js` 在 blob-URL iframe 上下文（以及导出的离线 HTML 文件）中能正确解析到后端
-
-### 代码质量
-- 修复 ESLint 警告 (set-state-in-effect, exhaustive-deps)
-- 修复后端 ruff 检查问题
-- 修复 `formatSql` 函数的幂等性问题
-- 清理 `backend/app/main.py` 中重复的 `app.mount("/static", ...)` 块
-- 修复 `report_generator.py` 中 `html_parts.extend([...])` 缺少闭括号的语法错误（该文件之前无法被 import）
-
-### 前端优化
-- DataExplorer 用户体验优化：内联模板编辑，无需弹窗
-- 模板名称始终可编辑
-- 保存按钮同时支持新建和更新模板
-- 添加未保存更改状态跟踪 (`isDirty`)
-
-### 依赖更新
-- 添加 `isomorphic-dompurify` 用于 HTML 消毒
-- 添加 `dompurify` 类型定义
-
----
-
-## [0.1.0] - 2026-06-19
-
-### 新增
-- 经营分析报表系统 MVP 初始版本
-- 后端：FastAPI + SQLAlchemy
-- 前端：React + TypeScript + Vite
-- 数据源管理（支持 PostgreSQL、SQLite、OpenGauss、DWS）
-- 报表定义和生成
-- 报表预览（Chart.js 可视化）
-- SQL 数据探索器（语法高亮）
-- 定时任务执行
-- Excel 和 HTML 导出格式
-
 
 ## [0.2.0] - 2026-06-20
 

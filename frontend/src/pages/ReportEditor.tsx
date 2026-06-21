@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Card, Form, Input, Button, Space, Select, message, Modal,
@@ -167,6 +167,20 @@ function ItemEditorModal({ visible, item, onSave, onCancel, isNew }: ItemEditorM
 
   const handleSubmit = () => {
     form.validateFields().then((values) => {
+      // Item-type-specific validation beyond what Form.Item rules cover
+      if (itemType === 'chart' && !values.display_config?.chart_type) {
+        message.warning('图表类型必须选择图表类型（如柱状图、折线图等）');
+        return;
+      }
+      if (itemType === 'text' && !values.display_config?.content?.trim()) {
+        message.warning('文本类型必须填写文本内容');
+        return;
+      }
+      const needsFields = ['table', 'chart', 'metric'].includes(itemType) && !useCustomSql;
+      if (needsFields && (!values.fields || values.fields.length === 0)) {
+        message.warning('至少需要一个查询字段');
+        return;
+      }
       const processedValues = {
         ...values,
         display_config: values.display_config || {},
@@ -433,7 +447,7 @@ export default function ReportEditor() {
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 
-  const loadReport = async () => {
+  const loadReport = useCallback(async () => {
     if (!id) return;
     setLoading(true);
     try {
@@ -444,25 +458,25 @@ export default function ReportEditor() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
 
-  const loadDataSources = async () => {
+  const loadDataSources = useCallback(async () => {
     try {
       const data = await dataSourceApi.list();
       setDataSources(data);
     } catch (err: unknown) {
       message.error(formatError(err, '加载数据源失败'));
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadReport();
     loadDataSources();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadReport/loadDataSources use id from closure
-  }, [id]);
+  }, [id, loadReport, loadDataSources]);
 
   const handleSaveReport = async () => {
     if (!report) return;
+    const snapshot = { ...report };
     setSaving(true);
     try {
       await reportApi.update(report.id, {
@@ -475,6 +489,8 @@ export default function ReportEditor() {
       message.success('保存成功');
     } catch (err: unknown) {
       message.error(formatError(err, '保存失败'));
+      // Rollback in-memory state to last persisted values
+      setReport(snapshot);
     } finally {
       setSaving(false);
     }

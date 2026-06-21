@@ -11,29 +11,26 @@ const { Option } = Select;
 
 // Simple SQL formatter - idempotent (safe to run multiple times)
 function formatSql(sql: string): string {
-  // 1. 先规范化：移除多余空白，转大写
+  // 规范化空白
   const normalized = sql.trim().replace(/\s+/g, ' ');
 
-  // 2. 关键词列表（按长度降序，确保 LEFT JOIN 先于 LEFT 匹配）
+  // 关键词按长度降序；多词关键词用 \s+ 匹配词间空白
   const keywords = [
     'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'OUTER JOIN',
-    'ORDER BY', 'GROUP BY', 'HAVING', 'DISTINCT',
-    'SELECT', 'FROM', 'WHERE', 'AND', 'OR', 'LIMIT',
-    'JOIN', 'ON', 'AS', 'UNION', 'ALL',
+    'ORDER BY', 'GROUP BY',
+    'SELECT', 'FROM', 'WHERE', 'HAVING', 'DISTINCT',
+    'AND', 'OR', 'LIMIT', 'JOIN', 'ON', 'AS', 'UNION', 'ALL',
   ];
+  const pattern = keywords.map((kw) => kw.replace(/\s+/g, '\\s+')).join('|');
+  const regex = new RegExp('\\b(' + pattern + ')\\b', 'gi');
 
-  // 3. 在每个关键词前插入换行和缩进
-  let result = normalized;
-  keywords.forEach((kw) => {
-    const regex = new RegExp('\\b' + kw + '\\b', 'gi');
-    result = result.replace(regex, '\n' + kw);
-  });
+  // 单次替换：每个关键词前插入换行
+  const result = normalized.replace(regex, '\n$1');
 
-  // 4. 移除开头的多余换行，并统一缩进
   return result
-    .replace(/^\n+/, '')  // 移除开头的换行
+    .replace(/^\n+/, '')
     .split('\n')
-    .map((line) => (line.startsWith('  ') ? line : '  ' + line))  // 统一缩进
+    .map((line) => (line.startsWith('  ') ? line : '  ' + line))
     .join('\n');
 }
 

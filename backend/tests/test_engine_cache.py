@@ -8,8 +8,6 @@ down any engines it created.
 from types import SimpleNamespace
 from typing import Any
 
-import pytest
-
 from app.services.report_generator import (
     ReportGenerator,
     _engine_cache,

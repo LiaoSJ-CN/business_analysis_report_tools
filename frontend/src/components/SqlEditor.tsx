@@ -117,6 +117,9 @@ export default function SqlEditor({
     return () => {
       view.destroy();
     };
+    // CodeMirror 6 creates once on mount — re-creating on prop change
+    // would lose cursor position, undo history, and selection state.
+    // External value sync is handled by the separate effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

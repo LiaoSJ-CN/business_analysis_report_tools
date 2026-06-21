@@ -18,7 +18,6 @@ from app.services.jwt_auth import (
     decode_token,
 )
 
-
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 

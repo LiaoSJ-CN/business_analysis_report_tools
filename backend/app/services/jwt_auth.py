@@ -11,7 +11,6 @@ import jwt
 
 from app.config import settings
 
-
 TokenType = Literal["access", "refresh"]
 
 

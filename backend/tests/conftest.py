@@ -26,13 +26,13 @@ sys.path.insert(0, str(BACKEND_ROOT))
 # requests. Must be set BEFORE app modules import settings.
 os.environ.setdefault("JWT_SECRET_KEY", "pytest-secret-do-not-use-in-prod")
 
-import pytest
-from fastapi.testclient import TestClient
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
-from app.config import settings
-from app.main import app
-from app.services.jwt_auth import create_access_token
-from app.services.report_generator import _engine_cache
+from app.config import settings  # noqa: E402
+from app.main import app  # noqa: E402
+from app.services.jwt_auth import create_access_token  # noqa: E402
+from app.services.report_generator import _engine_cache  # noqa: E402
 
 
 @pytest.fixture
