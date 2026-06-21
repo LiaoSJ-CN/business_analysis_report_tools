@@ -9,23 +9,28 @@ import SqlEditor from '../components/SqlEditor';
 
 const { Option } = Select;
 
+// SQL keyword list, longest-first so multi-word keywords (LEFT JOIN) match
+// before their prefixes (JOIN). Module-level: built once, not per call.
+const SQL_KEYWORDS = [
+  'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'OUTER JOIN',
+  'ORDER BY', 'GROUP BY',
+  'SELECT', 'FROM', 'WHERE', 'HAVING', 'DISTINCT',
+  'AND', 'OR', 'LIMIT', 'JOIN', 'ON', 'AS', 'UNION', 'ALL',
+];
+// Multi-word keywords need \s+ between words; single words stay literal.
+const KEYWORDS_PATTERN = new RegExp(
+  '\\b(' + SQL_KEYWORDS.map((kw) => kw.replace(/\s+/g, '\\s+')).join('|') + ')\\b',
+  'gi'
+);
+
 // Simple SQL formatter - idempotent (safe to run multiple times)
 function formatSql(sql: string): string {
   // 规范化空白
   const normalized = sql.trim().replace(/\s+/g, ' ');
 
-  // 关键词按长度降序；多词关键词用 \s+ 匹配词间空白
-  const keywords = [
-    'LEFT JOIN', 'RIGHT JOIN', 'INNER JOIN', 'OUTER JOIN',
-    'ORDER BY', 'GROUP BY',
-    'SELECT', 'FROM', 'WHERE', 'HAVING', 'DISTINCT',
-    'AND', 'OR', 'LIMIT', 'JOIN', 'ON', 'AS', 'UNION', 'ALL',
-  ];
-  const pattern = keywords.map((kw) => kw.replace(/\s+/g, '\\s+')).join('|');
-  const regex = new RegExp('\\b(' + pattern + ')\\b', 'gi');
-
   // 单次替换：每个关键词前插入换行
-  const result = normalized.replace(regex, '\n$1');
+  // String.prototype.replace is safe with stateful `g` regex (no lastIndex use).
+  const result = normalized.replace(KEYWORDS_PATTERN, '\n$1');
 
   return result
     .replace(/^\n+/, '')
