@@ -21,7 +21,7 @@
 - 报表预览逐项错误展示：`generate_report()` 收集每个 item 的查询失败原因，`render_html(errors=...)` 在 HTML 中渲染红色错误横幅（`html.escape` 转义防 XSS）。`ReportGenerateResponse` 新增 `item_errors` 字段供编程调用方使用。Excel 路径保持现有行为（空白 sheet）
 
 ### 计划中
-见 `~/.claude/projects/-Users-liaosj-Documents-code-business-analysis-report-tools/memory/known-todos.md`
+见 `~/.claude/projects/-Users-liaosj-Documents-code-isee-workbench/memory/`
 
 ---
 

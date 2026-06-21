@@ -176,7 +176,7 @@ mypy app
 - `scheduler_runner.py` — Sidecar 进程入口（`python -m app.scheduler_runner`）。独占 APScheduler tick 循环，配合 web 进程的 `SCHEDULER_DISABLED=true` 解决 `gunicorn -w N` 下 job 跑 N 次的问题。
 - `config.py` — 基于 Pydantic-settings 的配置，从 `backend/.env` 加载。
 - `database.py` — 元数据库的 SQLAlchemy engine/session 设置。对非 SQLite 数据库启用 `pool_pre_ping`。
-- `middleware/` — 可复用中间件：`rate_limit.py`（内存滑动窗口限流器）。
+- `middleware/` — 可复用中间件：`rate_limit.py`（内存滑动窗口限流器）、`security_headers.py`（安全响应头）、`proxy_headers.py`（反向代理 IP 信任）。
 - `models/` — SQLAlchemy 模型：
   - `DataSource` — 外部数据库连接信息。
   - `Report` — 报表定义、调度配置、输出格式。
@@ -187,10 +187,16 @@ mypy app
   - `report.py` — 报表 CRUD、报表项 CRUD、报表生成/导出接口。
   - `scheduler.py` — APScheduler 任务管理和同步接口。
   - `explorer.py` — 对数据源执行 `SELECT` 查询并返回表格结果。
+  - `auth.py` — 登录、Token 刷新、登出、当前用户接口。
 - `services/` — 核心业务逻辑：
   - `connection.py` — 构建 SQLAlchemy 连接 URL 并测试连通性。将 `opengauss`/`dws`/`postgresql` 映射为 `postgresql+psycopg2`。
   - `report_generator.py` — 根据 `ReportItem` 配置构建参数化 SQL、执行查询，并渲染 HTML（Chart.js）或 Excel（openpyxl）输出。
   - `scheduler.py` — 封装 APScheduler 的 `ReportScheduler` 单例；启动时从数据库加载已启用调度的报表，并通过 `generate_report` 生成报表。
+  - `sql_validator.py` — sqlglot AST 校验，拦截非 SELECT / 多语句 / 危险操作。
+  - `ssrf_guard.py` — Webhook URL SSRF 防护（scheme 校验、内网/保留 IP 阻断、DNS 重绑定检测）。
+  - `auth_state.py` — 服务端 Token 状态追踪（登出失效）。
+  - `jwt_auth.py` — JWT 签发与校验（access + refresh token）。
+  - `password.py` — 密码哈希与校验（passlib bcrypt）。
 - `alembic/` — 数据库迁移脚本目录（Alembic），`env.py` 从 `app.config.settings` 动态获取 `database_url`，支持 autogenerate。
 
 ### 前端 (`frontend/src/`)
