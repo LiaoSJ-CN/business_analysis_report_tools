@@ -525,15 +525,9 @@ export default function ReportEditor() {
       const newIndex = report.items.findIndex((i) => `item-${i.id}` === over.id);
       if (oldIndex !== -1 && newIndex !== -1) {
         const newItems = arrayMove(report.items, oldIndex, newIndex);
-        // Update order_index
         const updatedItems = newItems.map((item, idx) => ({ ...item, order_index: idx }));
         setReport({ ...report, items: updatedItems as ReportItem[] });
-        // Save the new order
-        updatedItems.forEach((item, idx) => {
-          if (item.id) {
-            reportApi.updateItem(report.id, item.id, { order_index: idx } as ReportItemUpdate);
-          }
-        });
+        persistOrder(updatedItems as ReportItem[]);
       }
     }
   };
@@ -547,13 +541,20 @@ export default function ReportEditor() {
     const updatedItems = newItems.map((item, idx) => ({ ...item, order_index: idx }));
     setReport({ ...report, items: updatedItems as ReportItem[] });
 
-    // Save
+    await persistOrder(updatedItems as ReportItem[]);
+  };
+
+  // Persist a new item ordering to the backend in a single atomic call.
+  // On any failure, reload from DB so the UI reflects the actual server state
+  // rather than the optimistic update.
+  const persistOrder = async (orderedItems: ReportItem[]) => {
+    if (!report) return;
+    const payload = orderedItems
+      .filter((i) => i.id !== undefined)
+      .map((i) => ({ item_id: i.id as number, order_index: i.order_index }));
+    if (payload.length === 0) return;
     try {
-      await Promise.all(
-        updatedItems.map((item) =>
-          item.id ? reportApi.updateItem(report.id, item.id, { order_index: item.order_index } as ReportItemUpdate) : null
-        )
-      );
+      await reportApi.reorderItems(report.id, payload);
     } catch {
       message.error('排序保存失败');
       loadReport();

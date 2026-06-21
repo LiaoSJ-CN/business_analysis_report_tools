@@ -178,6 +178,14 @@ export const reportApi = {
     return data;
   },
 
+  reorderItems: async (
+    reportId: number,
+    items: { item_id: number; order_index: number }[]
+  ): Promise<{ updated: number }> => {
+    const { data } = await api.patch(`/reports/${reportId}/items/order`, { items });
+    return data;
+  },
+
   deleteItem: async (reportId: number, itemId: number): Promise<void> => {
     await api.delete(`/reports/${reportId}/items/${itemId}`);
   },

@@ -16,6 +16,7 @@ from app.schemas.report import (
     ReportGenerateRequest,
     ReportGenerateResponse,
     ReportItemCreate,
+    ReportItemReorderRequest,
     ReportItemResponse,
     ReportItemUpdate,
     ReportUpdate,
@@ -84,6 +85,38 @@ def delete_report_item(report_id: int, item_id: int, db: Session = Depends(get_d
     db.delete(item)
     db.commit()
     return None
+
+
+@router.patch("/{report_id}/items/order")
+def reorder_report_items(
+    report_id: int,
+    payload: ReportItemReorderRequest,
+    db: Session = Depends(get_db),
+):
+    """Atomically update ``order_index`` for a report's items.
+
+    Used by the drag-reorder UI to replace N parallel PUTs with one
+    transactional call. All ``item_id`` values must belong to
+    ``report_id``; any mismatch returns 422 so the caller can roll
+    back the optimistic UI update.
+    """
+    item_ids = [e.item_id for e in payload.items]
+    rows = (
+        db.query(ReportItem)
+        .filter(ReportItem.id.in_(item_ids), ReportItem.report_id == report_id)
+        .all()
+    )
+    if len(rows) != len(set(item_ids)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="All item_ids must belong to this report",
+        )
+
+    index_by_id = {e.item_id: e.order_index for e in payload.items}
+    for row in rows:
+        row.order_index = index_by_id[row.id]
+    db.commit()
+    return {"updated": len(rows)}
 
 
 # ---- Report CRUD Endpoints ----

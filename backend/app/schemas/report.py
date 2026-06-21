@@ -156,6 +156,24 @@ class ReportItemResponse(ReportItemBase):
     updated_at: datetime | None = None
 
 
+class ReportItemOrderEntry(BaseModel):
+    """One row in a batch reorder request."""
+
+    item_id: int = Field(..., ge=1)
+    order_index: int = Field(..., ge=0)
+
+
+class ReportItemReorderRequest(BaseModel):
+    """Batch reorder of report items.
+
+    All ``item_id`` values must belong to the target report — the handler
+    validates ownership and rejects partial mismatches with 422 so the
+    reorder is all-or-nothing.
+    """
+
+    items: list[ReportItemOrderEntry] = Field(..., min_length=1)
+
+
 # ---- Report Schemas ----
 
 

@@ -9,6 +9,7 @@
 - **导出按钮坏掉**：`ReportPreview.tsx`「导出 Excel/HTML」用 `window.open(getExportUrl(...))` 打开 JWT-gated 端点，但 `window.open` 不会附 `Authorization` header → 401 跳登录页。修：改用 axios-backed `reportApi.download`（同步修了 `api/index.ts` 的 `download` 之前用裸 `fetch` 也没附 token，整条 download 流都坏——`ReportList` 也受益）
 - DataExplorer 查询错误提示条件写反：原条件 `result.success && result.error` 是死代码（API 设 `success=false` 才回 `error`），改成 `!result.success && result.error`，SQL 执行错误才会显示详情
 - DataExplorer CSV 导出不符合 RFC 4180：多行单元格值、含 `,`/`"` 的值会破格式。引入 `csvEscape` helper（命中 `,`/`"`/CR/LF 时整段加引号，内部 `"` 双写），行结束符统一 `\r\n`
+- 报表编辑器拖拽排序从 N 并发 PUT 改为单次 `PATCH /reports/{id}/items/order`：后端单事务原子更新 `order_index`，所有 `item_id` 必须属于目标 report（否则 422 整批拒绝）。消除部分写导致的不一致，同时去掉 N+1 请求；上下移按钮 `handleMoveItem` 同步切到该端点
 
 ### 计划中
 见 `~/.claude/projects/-Users-liaosj-Documents-code-business-analysis-report-tools/memory/known-todos.md`
