@@ -238,11 +238,15 @@ def generate_report_endpoint(request: ReportGenerateRequest, db: Session = Depen
             parameters=request.parameters,
             db=db,
         )
+        # result may include an `errors` dict; pull it out so it goes into
+        # the typed `item_errors` field rather than as an arbitrary kwarg.
+        item_errors = result.pop("errors", {})
         return ReportGenerateResponse(
             success=True,
             report_id=report.id,
             report_name=report.name,
             output_format=request.output_format,
+            item_errors=item_errors,
             **result,
         )
     except ReportGeneratorError as exc:

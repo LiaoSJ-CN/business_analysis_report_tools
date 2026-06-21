@@ -253,6 +253,10 @@ class ReportGenerateResponse(BaseModel):
     file_path: str | None = None
     preview_data: dict[str, Any] | None = None
     error: str | None = None
+    # Per-item query failures from generate_report. Keys are item.name; values
+    # are the human-readable error message (already surfaced as a banner in
+    # the preview HTML). Empty dict = all items succeeded.
+    item_errors: dict[str, str] = Field(default_factory=dict)
 
 
 class ScheduleTaskCreate(BaseModel):

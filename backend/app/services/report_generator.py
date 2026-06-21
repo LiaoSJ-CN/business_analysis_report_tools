@@ -258,6 +258,7 @@ class ReportGenerator:
         data: dict[str, pd.DataFrame],
         report: Report,
         base_url: str | None = None,
+        errors: dict[str, str] | None = None,
     ) -> str:
         """Render report data as HTML with Chart.js charts."""
         # Default colors for charts
@@ -297,6 +298,9 @@ class ReportGenerator:
             ".text-block { padding: 15px; background: #fafafa; "
             "border-radius: 4px; margin: 10px 0; }",
             ".chart-wrapper { position: relative; height: 400px; width: 100%; }",
+            ".item-error { margin: 20px 0; padding: 15px; "
+            "background: #fff1f0; border: 1px solid #ffa39e; border-radius: 8px; }",
+            ".item-error .error-banner { color: #cf1322; margin: 8px 0 0 0; }",
             "</style>",
             "</head>",
             "<body>",
@@ -307,10 +311,23 @@ class ReportGenerator:
             html_parts.append(f"<p>{h(report.description)}</p>")
 
         chart_index = 0
+        errors = errors or {}
         # Render each item
         for item in report.items:
-            item_data = data.get(item.name)
             config = item.display_config or {}
+            # If this item failed upstream, surface the error visibly instead
+            # of rendering a blank card. html.escape the message because it
+            # originates from a DB driver string.
+            if item.name in errors:
+                title = config.get("title") or item.name
+                html_parts.append(
+                    "<div class='item-error'>"
+                    f"<h2>{h(title)}</h2>"
+                    f"<p class='error-banner'>⚠ {h(errors[item.name])}</p>"
+                    "</div>"
+                )
+                continue
+            item_data = data.get(item.name)
 
             if item.item_type == "metric" and item_data is not None and not item_data.empty:
                 # Render as metric cards
@@ -524,6 +541,7 @@ def generate_report(
     output_dir.mkdir(exist_ok=True)
 
     with ReportGenerator(data_source) as generator:
+        errors: dict[str, str] = {}
         for item in report.items:
             if item.item_type == "text":
                 # Text items don't need data
@@ -534,20 +552,25 @@ def generate_report(
             try:
                 df = generator.execute_query(query, params)
                 results[item.name] = df
-            except ReportGeneratorError:
-                # If a query fails, continue with empty data
+            except ReportGeneratorError as exc:
+                # Record the error so the renderer / API can surface it.
+                # Empty DataFrame keeps the rest of the pipeline (HTML
+                # layout, Excel sheets) running for the other items.
+                errors[item.name] = str(exc)
                 results[item.name] = pd.DataFrame()
 
         if preview_only or output_format == "html":
-            html_content = generator.render_html(results, report, base_url=base_url)
+            html_content = generator.render_html(
+                results, report, base_url=base_url, errors=errors or None
+            )
             if preview_only:
-                return {"preview_data": html_content}
+                return {"preview_data": html_content, "errors": errors}
             else:
                 # Save HTML file
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = output_dir / f"{_safe_filename(report.name)}_{timestamp}.html"
                 filename.write_text(html_content, encoding="utf-8")
-                return {"file_path": str(filename)}
+                return {"file_path": str(filename), "errors": errors}
 
         elif output_format == "excel":
             # Create Excel file with multiple sheets
@@ -570,6 +593,6 @@ def generate_report(
                         sheet_name = item_name[:31].replace("/", "_").replace("*", "")
                         df.to_excel(writer, sheet_name=sheet_name, index=False)
 
-            return {"file_path": str(filename)}
+            return {"file_path": str(filename), "errors": errors}
 
-    return {}
+    return {"errors": errors}

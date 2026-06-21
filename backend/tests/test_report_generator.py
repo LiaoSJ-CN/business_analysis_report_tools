@@ -350,3 +350,121 @@ def test_render_html_table_renders_columns_and_rows() -> None:
     assert "<th>a</th>" in html
     assert "<th>b</th>" in html
     assert "My Table" in html
+
+
+# ---------- per-item error banner (was silently swallowed before #11) ----------
+
+
+def _render_with_errors(items, errors, data=None):
+    """Helper: render_html with an items list and per-item errors dict."""
+    g = _gen()
+    report = SimpleNamespace(name="r", description=None, items=items)
+    return g.render_html(data or {}, report, errors=errors)
+
+
+def test_render_html_renders_error_banner_for_failed_item() -> None:
+    """Failed items used to disappear silently from preview. Now the item
+    name + the underlying error message must appear in the rendered HTML
+    so the operator sees something failed instead of a blank card."""
+    items = [
+        SimpleNamespace(
+            name="sales_metric",
+            item_type="metric",
+            table_name="orders",
+            display_config={"title": "Sales Q1"},
+        ),
+    ]
+    html = _render_with_errors(
+        items,
+        errors={"sales_metric": "Query execution failed: no such table"},
+    )
+    # Item name (and title) must be visible — operators need to know WHICH item.
+    assert "Sales Q1" in html
+    assert "sales_metric" in html or "Sales Q1" in html
+    # The error message itself must reach the page (escaped to be safe).
+    assert "Query execution failed: no such table" in html
+    # Distinguishing CSS class so a future "show only failures" filter is easy.
+    assert "<div class='item-error'>" in html
+
+
+def test_render_html_error_message_is_html_escaped() -> None:
+    """The error message originates from a DB driver string — defense in
+    depth: html.escape it before injecting into the preview iframe."""
+    items = [
+        SimpleNamespace(
+            name="x",
+            item_type="chart",
+            table_name="t",
+            display_config={"title": "X"},
+        ),
+    ]
+    html = _render_with_errors(
+        items,
+        errors={"x": "<script>alert(1)</script>"},
+    )
+    assert "<script>alert(1)</script>" not in html
+    assert "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+
+
+def test_render_html_mixed_good_and_bad_items() -> None:
+    """A good item must render its data; a bad item in the same report must
+    render its error banner — both visible, neither swallowing the other."""
+    items = [
+        SimpleNamespace(
+            name="good_table",
+            item_type="table",
+            table_name="t",
+            display_config={"title": "Good"},
+        ),
+        SimpleNamespace(
+            name="bad_chart",
+            item_type="chart",
+            table_name="missing",
+            display_config={"title": "Bad"},
+        ),
+    ]
+    data = {"good_table": pd.DataFrame({"a": [1]})}
+    html = _render_with_errors(
+        items,
+        errors={"bad_chart": "table 'missing' does not exist"},
+        data=data,
+    )
+    # Good item rendered normally.
+    assert "<table>" in html
+    assert "Good" in html
+    # Bad item rendered as banner.
+    assert "<div class='item-error'>" in html
+    assert "does not exist" in html
+
+
+def test_render_html_text_item_unaffected_by_errors_dict() -> None:
+    """Text items don't query anything; passing an errors dict must not
+    fabricate a banner for them."""
+    items = [
+        SimpleNamespace(
+            name="intro",
+            item_type="text",
+            table_name=None,
+            display_config={"content": "Welcome"},
+        ),
+    ]
+    html = _render_with_errors(items, errors={})
+    assert "Welcome" in html
+    assert "<div class='item-error'>" not in html
+
+
+def test_render_html_no_errors_means_no_banners() -> None:
+    """Default (errors=None) preserves existing behavior — guards the
+    backward-compat contract for callers that don't know about errors."""
+    items = [
+        SimpleNamespace(
+            name="t",
+            item_type="table",
+            table_name="x",
+            display_config={},
+        ),
+    ]
+    g = _gen()
+    report = SimpleNamespace(name="r", description=None, items=items)
+    html = g.render_html({"t": pd.DataFrame({"a": [1]})}, report)  # no errors kw
+    assert "<div class='item-error'>" not in html
