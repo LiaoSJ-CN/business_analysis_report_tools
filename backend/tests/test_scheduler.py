@@ -216,6 +216,103 @@ def test_create_job_accepts_valid_complex_cron(
     assert r.status_code == 200, r.text
 
 
+def test_get_job_status_404_when_no_job(
+    client: TestClient, auth_headers: dict, temp_report
+) -> None:
+    """A report with no schedule should 404 on GET /scheduler/jobs/{id}."""
+    r = client.get(f"/scheduler/jobs/{temp_report}", headers=auth_headers)
+    assert r.status_code == 404
+    assert "No scheduled job" in r.json()["detail"]
+
+
+def test_get_job_status_returns_existing_job(
+    client: TestClient, auth_headers: dict, temp_report
+) -> None:
+    """After POST creates the job, GET should return its APScheduler metadata."""
+    rid = temp_report
+    client.post(
+        f"/scheduler/jobs/{rid}",
+        headers=auth_headers,
+        json={"report_id": rid, "cron_expression": "0 9 * * * *"},
+    )
+    r = client.get(f"/scheduler/jobs/{rid}", headers=auth_headers)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["job_id"] == f"report_{rid}"
+    assert "trigger" in body and body["trigger"]
+
+
+def test_delete_job_clears_db_fields_and_removes_from_scheduler(
+    client: TestClient, auth_headers: dict, temp_report
+) -> None:
+    """DELETE must wipe schedule fields on the Report row AND drop the
+    APScheduler job — leaving either side dirty breaks the next sync."""
+    rid = temp_report
+    client.post(
+        f"/scheduler/jobs/{rid}",
+        headers=auth_headers,
+        json={
+            "report_id": rid,
+            "cron_expression": "0 9 * * * *",
+            "schedule_description": "morning rollup",
+            "notification_config": {"type": "webhook", "webhook_url": "https://x"},
+        },
+    )
+
+    r = client.delete(f"/scheduler/jobs/{rid}", headers=auth_headers)
+    assert r.status_code == 204
+
+    # APScheduler job removed
+    assert get_scheduler().get_job_status(rid) is None
+
+    # DB fields cleared
+    db = SessionLocal()
+    try:
+        row = db.query(Report).filter(Report.id == rid).first()
+        assert row is not None
+        assert row.is_scheduled is False
+        assert row.cron_expression is None
+        assert row.schedule_description is None
+        assert row.notification_config is None
+    finally:
+        db.close()
+
+    # GET now 404s
+    r = client.get(f"/scheduler/jobs/{rid}", headers=auth_headers)
+    assert r.status_code == 404
+
+
+def test_create_job_with_is_active_false_excluded_from_sync(
+    client: TestClient, auth_headers: dict, temp_report
+) -> None:
+    """A job posted with is_active=False must be dropped by the next sync —
+    that's the toggle-off path operators will use to pause without losing
+    the cron / webhook config (vs. DELETE, which clears everything)."""
+    rid = temp_report
+    r = client.post(
+        f"/scheduler/jobs/{rid}",
+        headers=auth_headers,
+        json={
+            "report_id": rid,
+            "cron_expression": "0 9 * * * *",
+            "is_active": False,
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    # DB row reflects the toggle
+    db = SessionLocal()
+    try:
+        row = db.query(Report).filter(Report.id == rid).first()
+        assert row is not None and row.is_active is False
+    finally:
+        db.close()
+
+    # POST /sync reconciles — is_active=False rows are filtered out
+    client.post("/scheduler/sync", headers=auth_headers)
+    assert get_scheduler().get_job_status(rid) is None
+
+
 def test_sync_restores_notification_config(
     client: TestClient, auth_headers: dict, temp_report
 ) -> None:

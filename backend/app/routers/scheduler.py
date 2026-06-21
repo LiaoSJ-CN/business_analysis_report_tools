@@ -55,31 +55,25 @@ def get_scheduler_status():
 
 @router.post("/sync", response_model=SchedulerSyncResponse)
 def sync_scheduler(db: Session = Depends(get_db)):
-    """Sync scheduler with database - load all active scheduled reports."""
+    """Reconcile scheduler with the database — adds jobs for active scheduled
+    reports and drops jobs whose DB row no longer qualifies (paused, deleted,
+    missing). Delegates to `sync_with_database` so the HTTP path stays in
+    lockstep with the sidecar; without orphan removal, periodic re-sync would
+    leak stale jobs."""
     scheduler = get_scheduler()
-    db_gen = db.query(Report).filter(
-        Report.is_scheduled == True,  # noqa: E712
-        Report.is_active == True,  # noqa: E712
-        Report.cron_expression.isnot(None),  # noqa: E712
-    ).all()
+    scheduler.sync_with_database(db)
 
-    count = 0
-    failed = []
-    for report_obj in db_gen:
-        try:
-            scheduler.add_report_job(
-                report_id=report_obj.id,
-                cron_expression=report_obj.cron_expression,
-                notification_config=report_obj.notification_config or {},
-            )
-            count += 1
-        except Exception as exc:
-            failed.append({"report_id": report_obj.id, "error": str(exc)})
-            logger.warning(f"Failed to add scheduler job for report {report_obj.id}: {exc}")
-
+    # `jobs_loaded` reports the number of currently-active jobs the scheduler
+    # holds after the reconcile — matches what callers expected before this
+    # endpoint learned to drop orphans.
+    count = len(
+        db.query(Report).filter(
+            Report.is_scheduled == True,  # noqa: E712
+            Report.is_active == True,  # noqa: E712
+            Report.cron_expression.isnot(None),  # noqa: E712
+        ).all()
+    )
     msg = f"Synced {count} scheduled reports"
-    if failed:
-        msg += f", {len(failed)} failed"
     return SchedulerSyncResponse(jobs_loaded=count, message=msg)
 
 
