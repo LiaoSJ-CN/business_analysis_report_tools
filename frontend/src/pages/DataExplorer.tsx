@@ -377,15 +377,18 @@ export default function DataExplorer() {
   const handleExport = () => {
     if (!result || result.rows.length === 0) return;
     const headers = result.columns.join(',');
+    // RFC 4180: a field needs quoting if it contains the delimiter, a quote,
+    // a CR, or an LF. Quotes inside the field are escaped by doubling.
+    const csvEscape = (s: string): string =>
+      /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     const csvRows = result.rows.map((row) =>
       result.columns.map((col) => {
         const val = row[col];
         if (val === null || val === undefined) return '';
-        const str = String(val);
-        return str.includes(',') ? '"' + str.replace(/"/g, '""') + '"' : str;
+        return csvEscape(String(val));
       }).join(',')
     );
-    const csv = [headers, ...csvRows].join('\n');
+    const csv = [headers, ...csvRows].join('\r\n');
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
