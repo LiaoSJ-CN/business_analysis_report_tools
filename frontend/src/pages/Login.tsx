@@ -30,7 +30,9 @@ export default function Login() {
         message.error(
           `登录失败 (${err.response?.status ?? 'network'}): ${err.message}`
         );
-        console.error('login error', err);
+        // Debug-only: full axios error includes request URL + headers; never
+        // leak to production browser console.
+        if (import.meta.env.DEV) console.error('login error', err);
       } else {
         message.error('登录失败: ' + String(err));
       }
