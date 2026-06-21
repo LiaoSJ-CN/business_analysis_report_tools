@@ -192,6 +192,7 @@ export interface ReportGenerateResponse {
   file_path?: string;
   preview_data?: unknown;
   error?: string;
+  item_errors?: Record<string, string>;
 }
 
 export interface SchedulerJob {

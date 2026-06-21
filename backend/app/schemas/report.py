@@ -184,7 +184,7 @@ class ReportBase(BaseModel):
     description: str | None = Field(default=None, max_length=2000)
     data_source_id: int = Field(...)
     layout_config: dict[str, Any] | None = Field(default_factory=dict)
-    output_formats: list[str] = Field(default_factory=list)
+    output_formats: list[str] = Field(default_factory=lambda: ["excel", "html"])
     is_active: bool = Field(default=True)
 
 

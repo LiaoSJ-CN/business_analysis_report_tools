@@ -1,5 +1,7 @@
 """API routes for data exploration (SQL query execution)."""
 
+import logging
+
 import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -10,6 +12,8 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models.data_source import DataSource
 from app.services.connection import ConnectionError
+
+logger = logging.getLogger(__name__)
 from app.services.report_generator import _get_or_create_engine
 
 router = APIRouter(
@@ -140,6 +144,7 @@ def execute_query(request: QueryRequest, db: Session = Depends(get_db)) -> Query
             error=f"Connection error: {exc}",
         )
     except Exception as exc:
+        logger.exception("Unexpected error during query execution for data source %s", request.data_source_id)
         return QueryResponse(
             success=False,
             columns=[],

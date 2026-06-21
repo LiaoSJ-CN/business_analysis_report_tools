@@ -577,7 +577,10 @@ def generate_report(
                 # Save HTML file
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                 filename = output_dir / f"{_safe_filename(report.name)}_{timestamp}.html"
-                filename.write_text(html_content, encoding="utf-8")
+                try:
+                    filename.write_text(html_content, encoding="utf-8")
+                except OSError as exc:
+                    raise ReportGeneratorError(f"Failed to write HTML report: {exc}") from exc
                 return {"file_path": str(filename), "errors": errors}
 
         elif output_format == "excel":
@@ -585,21 +588,24 @@ def generate_report(
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = output_dir / f"{_safe_filename(report.name)}_{timestamp}.xlsx"
 
-            with pd.ExcelWriter(filename, engine="openpyxl") as writer:
-                # Summary sheet
-                summary_df = pd.DataFrame([
-                    {"Report": report.name},
-                    {"Description": report.description or ""},
-                    {"Generated At": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
-                ])
-                summary_df.to_excel(writer, sheet_name="Summary", index=False)
+            try:
+                with pd.ExcelWriter(filename, engine="openpyxl") as writer:
+                    # Summary sheet
+                    summary_df = pd.DataFrame([
+                        {"Report": report.name},
+                        {"Description": report.description or ""},
+                        {"Generated At": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+                    ])
+                    summary_df.to_excel(writer, sheet_name="Summary", index=False)
 
-                # Data sheets
-                for item_name, df in results.items():
-                    if not df.empty:
-                        # Clean sheet name
-                        sheet_name = re.sub(r'[\\/*?:\[\]]', '_', item_name[:31])
-                        df.to_excel(writer, sheet_name=sheet_name, index=False)
+                    # Data sheets
+                    for item_name, df in results.items():
+                        if not df.empty:
+                            # Clean sheet name
+                            sheet_name = re.sub(r'[\\/*?:\[\]]', '_', item_name[:31])
+                            df.to_excel(writer, sheet_name=sheet_name, index=False)
+            except Exception as exc:
+                raise ReportGeneratorError(f"Failed to write Excel report: {exc}") from exc
 
             return {"file_path": str(filename), "errors": errors}
 
