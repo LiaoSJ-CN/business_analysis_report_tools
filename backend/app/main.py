@@ -9,6 +9,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.database import Base, SessionLocal, engine
+from app.db_migrations import ensure_columns
 from app.models import data_source as _data_source_module  # noqa: F401
 from app.models import report as _report_module  # noqa: F401
 from app.routers import auth, data_source, explorer, report, scheduler
@@ -17,6 +18,9 @@ from app.services.scheduler import get_scheduler
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 Base.metadata.create_all(bind=engine)
+# Backfill any columns added to models after the table was first created;
+# create_all only creates missing tables, never missing columns.
+ensure_columns(engine)
 
 
 @asynccontextmanager

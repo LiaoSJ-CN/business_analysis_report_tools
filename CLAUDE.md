@@ -136,7 +136,8 @@ mypy app
 
 ### 后端 (`backend/app/`)
 
-- `main.py` — FastAPI 入口。注册路由、配置 CORS、启动时创建 SQLAlchemy 表，并启动 APScheduler 单例。
+- `main.py` — FastAPI 入口。注册路由、配置 CORS、启动时创建 SQLAlchemy 表 (`create_all`) + 补齐缺失列 (`ensure_columns`)，并启动 APScheduler 单例。
+- `db_migrations.py` — `ensure_columns(engine)` 启动期补齐 SQLAlchemy MetaData 中已声明、但 DB 中尚未存在的列（`create_all` 只建表不补列）。
 - `scheduler_runner.py` — Sidecar 进程入口（`python -m app.scheduler_runner`）。独占 APScheduler tick 循环，配合 web 进程的 `SCHEDULER_DISABLED=true` 解决 `gunicorn -w N` 下 job 跑 N 次的问题。
 - `config.py` — 基于 Pydantic-settings 的配置，从 `backend/.env` 加载。
 - `database.py` — 元数据库的 SQLAlchemy engine/session 设置。
